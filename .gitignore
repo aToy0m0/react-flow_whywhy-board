@@ -1,0 +1,78 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+.pnp.*
+
+# Next.js
+.next/
+out/
+dist/
+.vercel/
+.turbo/
+
+# TypeScript
+*.tsbuildinfo
+
+# Environment variables (keep examples tracked)
+.env
+.env.*
+!.env.example
+.envrc
+.direnv/
+
+# Docker & local DB volumes
+/docker-compose.override.yml
+/docker-compose.*.yml
+!/docker-compose.yml
+/.docker/
+/docker-data/
+/docker/volumes/
+/pgdata/
+/postgres-data/
+/data/postgres/
+/data/pg/
+/db-data/
+
+# Prisma (keep schema & migrations tracked)
+prisma/*.sqlite
+prisma/*.db
+prisma/*.db-journal
+prisma/*-journal
+prisma/dev.db
+prisma/test.db
+prisma/generated/
+
+# Tailwind / PostCSS
+*.css.map
+
+# Caches
+.cache/
+.eslintcache
+.stylelintcache
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# IDE / OS files
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.iml
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Misc
+logs/
+*.log
+*.log.*
+tmp/
+temp/
+*.pem
+*.key

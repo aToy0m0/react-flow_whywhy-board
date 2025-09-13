@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #__next {
+  height: 100%;
+}
+
+body {
+  @apply antialiased text-gray-900 bg-white;
+}
+
+/* React Flow handle size and position tweaks (global) */
+:root {
+--handle-size: 20px;
+--handle-offset: calc(var(--handle-size) / 2);
+}
+
+.react-flow__handle {
+width: var(--handle-size);
+height: var(--handle-size);
+}
+
+.react-flow__handle-right {
+right: calc(var(--handle-offset) * -1);
+}
+
+.react-flow__handle-left {
+left: calc(var(--handle-offset) * -1);
+}
