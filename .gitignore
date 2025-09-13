@@ -9,6 +9,8 @@ pnpm-debug.log*
 
 # Next.js
 .next/
+.next*
+.next-dev/
 out/
 dist/
 .vercel/
