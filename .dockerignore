@@ -1,0 +1,31 @@
+# 依存ライブラリ（Docker 内で npm install するので不要）
+node_modules
+
+# Next.js ビルド成果物（Docker 内で再生成する）
+.next
+.next*
+out
+.cache
+
+# OS / エディタのゴミ
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Git 関連（コンテナに不要）
+.git
+.gitignore
+
+# Docker 関連ファイル（自分のマシンでだけ必要）
+dockerfile
+docker-compose.yml
+.dockerignore
+
+# ログ
+npm-debug.log
+yarn-error.log
+
+# 任意で除外（テスト・ドキュメント）
+tests
+*.md
