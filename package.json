@@ -1,12 +1,37 @@
 {
   "name": "whywhybord",
-  "version": "0.1.0",
+  "version": "0.1.1",
+  "description": "Interactive Why-Why Analysis Board built with React Flow",
+  "keywords": [
+    "react-flow",
+    "why-why-analysis",
+    "root-cause-analysis", 
+    "problem-solving",
+    "mind-map",
+    "flowchart"
+  ],
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=11.0.0"
+  },
+  "license": "MIT",
+  "author": "atoy0m0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aToy0m0/react-flow_whywhy-board.git"
+  },
+  "bugs": {
+    "url": "https://github.com/aToy0m0/react-flow_whywhy-board/issues"
+  },
+  "homepage": "https://github.com/aToy0m0/react-flow_whywhy-board#readme",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "type-check": "tsc --noEmit",
+    "clean": "rm -rf .next node_modules/.cache"
   },
   "dependencies": {
     "@iarna/toml": "^3.0.0",
