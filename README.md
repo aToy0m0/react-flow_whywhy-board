@@ -9,6 +9,12 @@ WhyWhy Board (whywhybord)
 - 保存/読込: ブラウザローカル保存、TOMLファイルの入出力
 - 画像出力: キャンバスを PNG としてダウンロード
 
+データモデル/スキーマ
+- 内部 JSON 形式（シリアライズ）: `schemas/serialized-graph.v1.schema.json`
+- TOML ファイルの論理構造（JSON 表現）: `schemas/whyboard-toml.v1.schema.json`
+  - TOML ↔ JSON は `lib/boardIO.ts` の `toToml`/`fromToml` に準拠
+  - 将来の移行のために `version` を付ける運用を推奨
+
 クイックスタート
 前提: Node.js 18+（推奨 20）
 

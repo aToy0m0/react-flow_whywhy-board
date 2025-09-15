@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/schemas/serialized-graph.v1.schema.json",
+  "title": "SerializedGraph v1",
+  "type": "object",
+  "required": ["nodes", "edges"],
+  "properties": {
+    "nodes": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/SerializedNode" }
+    },
+    "edges": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/SerializedEdge" }
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "SerializedNode": {
+      "type": "object",
+      "required": ["id", "x", "y", "label", "type"],
+      "properties": {
+        "id": { "type": "string" },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "label": { "type": "string" },
+        "type": { "enum": ["root", "why", "cause", "action"] },
+        "adopted": { "type": "boolean" },
+        "createdAt": { "type": "number" },
+        "uiHeight": { "type": "number" }
+      },
+      "additionalProperties": false
+    },
+    "SerializedEdge": {
+      "type": "object",
+      "required": ["id", "source", "target"],
+      "properties": {
+        "id": { "type": "string" },
+        "source": { "type": "string" },
+        "target": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  }
+}
+

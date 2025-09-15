@@ -1,0 +1,18 @@
+<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- 背景の角丸四角 -->
+  <rect width="32" height="32" rx="8" fill="#dbeafe"/>
+  
+  <!-- おしゃれな疑問符 -->
+  <!-- <path d="M16 6C19.866 6 23 9.134 23 13C23 15.5 21.8 17.2 20.2 18.4C19.4 19 19 19.5 19 20.5V21H13V20.5C13 18.5 13.8 17.5 15.2 16.4C16.2 15.6 16.8 14.8 16.8 13.8C16.8 12.5 15.8 11.8 14.5 11.8C13.2 11.8 12.5 12.5 12.5 13.5H7C7 9.5 10.5 6 16 6ZM16 23C17.1 23 18 23.9 18 25C18 26.1 17.1 27 16 27C14.9 27 14 26.1 14 25C14 23.9 14.9 23 16 23Z" fill="#151d2cff"/> -->
+
+  <!-- WHYテキスト -->
+  <text
+    x="16"
+    y="18"
+    font-size="25"
+    font-weight="bold"
+    fill="black"
+    text-anchor="middle"
+    dominant-baseline="middle"
+  >?</text>
+</svg>

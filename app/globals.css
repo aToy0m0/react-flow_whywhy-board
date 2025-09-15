@@ -12,19 +12,21 @@ body {
 
 /* React Flow handle size and position tweaks (global) */
 :root {
---handle-size: 20px;
---handle-offset: calc(var(--handle-size) / 2);
+  --handle-size: 12px;
+  --handle-offset: calc(var(--handle-size) / 2);
 }
 
-.react-flow__handle {
-width: var(--handle-size);
-height: var(--handle-size);
+/* Ensure our sizes win over library defaults */
+.react-flow .react-flow__handle {
+  width: var(--handle-size) !important;
+  height: var(--handle-size) !important;
+  border-radius: 50%;
 }
 
-.react-flow__handle-right {
-right: calc(var(--handle-offset) * -1);
+.react-flow .react-flow__handle-right {
+  right: calc(var(--handle-offset) * -1) !important;
 }
 
-.react-flow__handle-left {
-left: calc(var(--handle-offset) * -1);
+.react-flow .react-flow__handle-left {
+  left: calc(var(--handle-offset) * -1) !important;
 }

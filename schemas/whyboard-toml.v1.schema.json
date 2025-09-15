@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/schemas/whyboard-toml.v1.schema.json",
+  "title": "WhyBoard TOML v1 (JSON shape)",
+  "description": "JSON schema representing the TOML structure used by toToml()/fromToml().",
+  "type": "object",
+  "required": ["board", "nodes", "edges"],
+  "properties": {
+    "board": {
+      "type": "object",
+      "required": ["tenantid", "boardid"],
+      "properties": {
+        "tenantid": { "type": "string" },
+        "boardid": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "nodes": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/Node" }
+    },
+    "edges": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/Edge" }
+    },
+    "version": {
+      "type": ["string", "number"],
+      "description": "Optional schema/application version for future migrations"
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "Category": {
+      "enum": ["Root", "Why", "Cause", "Action"]
+    },
+    "Node": {
+      "type": "object",
+      "required": [
+        "tenantid",
+        "boardid",
+        "nodeid",
+        "content",
+        "depth",
+        "category",
+        "tags",
+        "prevNodes",
+        "nextNodes",
+        "x",
+        "y"
+      ],
+      "properties": {
+        "tenantid": { "type": "string" },
+        "boardid": { "type": "string" },
+        "nodeid": { "type": "string" },
+        "content": { "type": "string" },
+        "depth": { "type": "integer", "minimum": 0 },
+        "category": { "$ref": "#/definitions/Category" },
+        "adopted": { "type": "boolean" },
+        "uiHeight": { "type": "number" },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "prevNodes": { "type": "array", "items": { "type": "string" } },
+        "nextNodes": { "type": "array", "items": { "type": "string" } },
+        "x": { "type": "integer" },
+        "y": { "type": "integer" },
+        "parent": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "Edge": {
+      "type": "object",
+      "required": ["tenantid", "boardid", "source", "target"],
+      "properties": {
+        "tenantid": { "type": "string" },
+        "boardid": { "type": "string" },
+        "source": { "type": "string" },
+        "target": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  }
+}
+

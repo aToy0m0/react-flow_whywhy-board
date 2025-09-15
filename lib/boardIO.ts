@@ -51,24 +51,68 @@ export function deserializeGraph(
 }
 
 // Depth calculation for TOML
-export function calcDepths(nodes: RFNode<WhyNodeData>[], edges: RFEdge[], rootId = "root"): Record<string, number> {
+export function calcDepths(
+  nodes: RFNode<WhyNodeData>[],
+  edges: RFEdge[],
+  rootId?: string
+): Record<string, number> {
   const depth: Record<string, number> = {};
-  depth[rootId] = 0;
+
+  // Build children map and indegree map
   const childrenMap = new Map<string, string[]>();
+  const indegree = new Map<string, number>();
+  nodes.forEach((n) => indegree.set(n.id, 0));
   edges.forEach((e) => {
     const arr = childrenMap.get(e.source) ?? [];
     arr.push(e.target);
     childrenMap.set(e.source, arr);
+    indegree.set(e.target, (indegree.get(e.target) ?? 0) + 1);
   });
-  const queue: string[] = [rootId];
+
+  // Determine start nodes
+  const hasId = (id?: string): id is string => !!id && nodes.some((n) => n.id === id);
+  let starts: string[] = [];
+
+  if (hasId(rootId)) {
+    starts = [rootId!];
+  } else {
+    // Prefer nodes explicitly marked as type 'root'
+    const rootTyped = nodes.filter((n) => n.data?.type === ("root" as any)).map((n) => n.id);
+    if (rootTyped.length) {
+      starts = rootTyped;
+    } else {
+      // Fallback: nodes with no incoming edges
+      const zeroIn = nodes.filter((n) => (indegree.get(n.id) ?? 0) === 0).map((n) => n.id);
+      if (zeroIn.length) {
+        starts = zeroIn;
+      } else if (nodes.length) {
+        // Last resort: start from the first node
+        starts = [nodes[0].id];
+      }
+    }
+  }
+
+  // Initialize depths for all start nodes (forest support)
+  const queue: string[] = [];
+  const visited = new Set<string>();
+  for (const s of starts) {
+    depth[s] = Math.min(depth[s] ?? 0, 0);
+    queue.push(s);
+  }
+
+  // BFS from all starts
   while (queue.length) {
     const cur = queue.shift()!;
+    if (visited.has(cur)) continue;
+    visited.add(cur);
     const d = depth[cur] ?? 0;
-    (childrenMap.get(cur) ?? []).forEach((child) => {
-      depth[child] = Math.max(depth[child] ?? 0, d + 1);
+    for (const child of childrenMap.get(cur) ?? []) {
+      const next = d + 1;
+      depth[child] = depth[child] === undefined ? next : Math.min(depth[child], next);
       queue.push(child);
-    });
+    }
   }
+
   return depth;
 }
 
@@ -78,7 +122,7 @@ export function parentOf(id: string, edges: RFEdge[]): string | undefined {
 
 export function toToml(boardId: string, nodes: RFNode<WhyNodeData>[], edges: RFEdge[]): string {
   const tenantId = "local";
-  const depthMap = calcDepths(nodes, edges, "root");
+  const depthMap = calcDepths(nodes, edges);
 
   const toCategory = (t: NodeType): "Root" | "Why" | "Cause" | "Action" => {
     switch (t) {

@@ -4,6 +4,7 @@
 import {
   ReactFlow,
   Background,
+  BackgroundVariant,
   Controls,
   MiniMap,
   useEdgesState,
@@ -16,9 +17,10 @@ import {
   OnConnectEnd,
   useReactFlow,
   ReactFlowProvider,
+  getNodesBounds,
+  getViewportForBounds,
   // NodeChange,
 } from "@xyflow/react";
-import "@xyflow/react/dist/style.css";
 // MARK: 依存（React / ローカルモジュール）
 import { useCallback, useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from "react";
 import type { Node as RFNode, Edge as RFEdge, NodeChange, Viewport } from "@xyflow/react";
@@ -34,7 +36,10 @@ import { useContextMenu } from "@/hooks/useContextMenu";
 import { EDGE_TYPE, STEP_EDGE_OFFSET, STEP_EDGE_RADIUS, X_COL_GAP, Y_ROW_GAP, CONNECT_RADIUS, FITVIEW_PADDING, DEFAULT_VIEWPORT, DEFAULT_ROOT_POS } from "@/lib/layoutConstants";
 
 // MARK: Props / 型エイリアス
-type Props = { boardId: string };
+type Props = { 
+  boardId: string;
+  style?: React.CSSProperties;
+};
 
 type WNode = RFNode<WhyNodeData>;
 
@@ -42,7 +47,7 @@ type WNode = RFNode<WhyNodeData>;
 const nodeTypes: any = { why: WhyNode };
 
 // MARK: CanvasInner — ReactFlow の Provider 配下で動く本体
-function CanvasInner({ boardId }: Props, ref: React.Ref<BoardHandle>) {
+function CanvasInner({ boardId, style }: Props, ref: React.Ref<BoardHandle>) {
   const rf = useReactFlow();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [nodes, setNodes, onNodesChange] = useNodesState<RFNode<WhyNodeData>>([
@@ -82,16 +87,79 @@ function CanvasInner({ boardId }: Props, ref: React.Ref<BoardHandle>) {
   // MARK: クエリ — 子 -> 親
   const getParent = useCallback((id: string) => parentOf(id, edges), [edges]);
 
-  const getParentInfo = useCallback(
+  // なぜレベル（問題=0, 問題直下のなぜ=1, その子のなぜ=2, ...）を全ノード分まとめて算出
+  const whyLevelMap = useMemo(() => {
+    // ルート候補（data.type==='root'）を探索
+    const roots = nodes.filter((n) => n.data?.type === 'root').map((n) => n.id);
+    // 子リスト作成
+    const childrenMap = new Map<string, string[]>();
+    edges.forEach((e) => {
+      const arr = childrenMap.get(e.source) ?? [];
+      arr.push(e.target);
+      childrenMap.set(e.source, arr);
+    });
+
+    const level = new Map<string, number>();
+    const queue: string[] = [];
+
+    // ルートの why レベルは 0 とする
+    roots.forEach((rid) => {
+      level.set(rid, 0);
+      queue.push(rid);
+    });
+
+    // ルートが見つからない場合はそのまま（全て 0）
+    const visited = new Set<string>();
+    while (queue.length) {
+      const cur = queue.shift()!;
+      if (visited.has(cur)) continue;
+      visited.add(cur);
+      const curNode = nodes.find((n) => n.id === cur);
+      const curL = level.get(cur) ?? 0;
+      const kids = childrenMap.get(cur) ?? [];
+      for (const k of kids) {
+        const kn = nodes.find((n) => n.id === k);
+        // 「なぜ」以外（原因/対策）はレベル計算の対象外
+        if (!kn || kn.data?.type !== 'why') continue;
+        const nextL = curNode?.data?.type === 'root' || curNode?.data?.type === 'why' ? curL + 1 : curL;
+        if (!level.has(k) || (level.get(k)! > nextL)) level.set(k, nextL);
+        queue.push(k);
+      }
+    }
+
+    // デバッグ: 原因特定のため最小限の出力
+    if (process.env.NODE_ENV !== 'production') {
+      try {
+        const whyNodes = nodes.filter((n) => n.data?.type === 'why').map((n) => ({ id: n.id, lvl: level.get(n.id) ?? 0 }));
+        console.debug('[WhyBoard][debug] why-level summary', {
+          roots,
+          edges: edges.length,
+          whyCount: whyNodes.length,
+          sample: whyNodes.slice(0, 8),
+        });
+      } catch {}
+    }
+
+    return level;
+  }, [nodes, edges]);
+
+  // getParentInfo を最新状態で評価するための ref ベース実装（data に埋め込んだ関数の陳腐化を防ぐ）
+  const getParentInfoRef = useRef<(id: string) => { parentLabel?: string; index?: number }>(() => ({}));
+  const computeParentInfo = useCallback(
     (id: string) => {
       const parentId = getParent(id);
-      if (!parentId) return {};
-      const parent = nodes.find((n) => n.id === parentId);
-      const siblings = getChildren(parentId);
-      const index = siblings.findIndex((s) => s.id === id) + 1; // なぜX の X
-      return { parentLabel: parent?.data.label, index };
+      const parent = parentId ? nodes.find((n) => n.id === parentId) : undefined;
+      const index = whyLevelMap.get(id) ?? 0; // 深さ
+      return parent ? { parentLabel: parent?.data.label, index } : { index };
     },
-    [getParent, nodes, getChildren]
+    [getParent, nodes, whyLevelMap]
+  );
+  useEffect(() => {
+    getParentInfoRef.current = computeParentInfo;
+  }, [computeParentInfo]);
+  const getParentInfo = useCallback(
+    (id: string) => (getParentInfoRef.current ? getParentInfoRef.current(id) : {}),
+    []
   );
 
   // MARK: 変更ヘルパー — node.data をパッチ
@@ -124,7 +192,7 @@ function CanvasInner({ boardId }: Props, ref: React.Ref<BoardHandle>) {
       data: {
         ...n.data,
         boardId,
-        getParentInfo,
+        getParentInfo: (id: string) => getParentInfoRef.current?.(id) ?? {},
         hasChildren: (id: string) => edges.some((e) => e.source === id),
         hasCauseDescendant: (id: string) => {
           const visited = new Set<string>();
@@ -145,9 +213,6 @@ function CanvasInner({ boardId }: Props, ref: React.Ref<BoardHandle>) {
           setNodes((nds) => nds.map((nn) => (nn.id === id ? { ...nn, data: { ...nn.data, label: v } } : nn))),
         onToggleAdopted,
         onAddChild: (parentId: string, type?: NodeType) => {
-          try {
-            console.log('[WhyBoard] onAddChild called', { callerNodeId: n.id, parentId, requestedType: type, nodesCount: nodes.length, edgesCount: edges.length });
-          } catch {}
           addChildNodeRef.current(parentId, type);
         },
         openMenu: (id: string) => openMenu(id),
@@ -157,6 +222,12 @@ function CanvasInner({ boardId }: Props, ref: React.Ref<BoardHandle>) {
     }),
     [boardId, getParentInfo, onToggleAdopted, setNodes, menuOpenFor, openMenu, closeMenu, edges]
   );
+
+  // 既存ノードに最新の getParentInfo プロキシを一括設定（初回のみ）
+  useEffect(() => {
+    setNodes((nds) => nds.map((n) => ({ ...n, data: { ...n.data, getParentInfo: (id: string) => getParentInfoRef.current?.(id) ?? {} } })));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // MARK: アクション — ノード削除（関連エッジも削除）
   const deleteNode = useCallback(
@@ -178,9 +249,6 @@ function CanvasInner({ boardId }: Props, ref: React.Ref<BoardHandle>) {
   const addChildNode = useCallback(
     (parentId: string, typeOverride?: NodeType) => {
       const parent = nodes.find((n) => n.id === parentId);
-      try {
-        console.log('[WhyBoard] addChildNode enter', { parentId, parentFound: !!parent, typeOverride, nodesCount: nodes.length, edgesCount: edges.length });
-      } catch {}
       if (!parent) return;
       const siblings = getChildren(parentId);
       const idx = siblings.length; // 0-based for positioning
@@ -197,9 +265,7 @@ function CanvasInner({ boardId }: Props, ref: React.Ref<BoardHandle>) {
         type = "why";
       }
       const adopted = type === "cause" ? true : false;
-      try {
-        console.log('[WhyBoard] addChildNode decide', { parentType: parent.data.type, resolvedType: type, idx, baseX, baseY, siblingsIds: siblings.map(s => s.id) });
-      } catch {}
+      
 
       const newNode: WNode = enhanceNode({
         id: childId,
@@ -239,7 +305,7 @@ function CanvasInner({ boardId }: Props, ref: React.Ref<BoardHandle>) {
           eds
         )
       );
-      try { console.log('[WhyBoard] addChildNode added', { childId }); } catch {}
+      
 
       // 整列: 追加後に同一親の子を等間隔に再配置
       setTimeout(() => layoutChildren(parentId), 0);
@@ -257,7 +323,7 @@ function CanvasInner({ boardId }: Props, ref: React.Ref<BoardHandle>) {
   const onConnect = useCallback(
     (connection: Connection) => {
       if (!connection.source || !connection.target) return;
-      try { console.log('[WhyBoard] onConnect', connection); } catch {}
+      
       setEdges((eds) => addEdge({ ...connection, type: EDGE_TYPE as any, markerEnd: { type: MarkerType.ArrowClosed } }, eds));
       didConnectRef.current = true;
     },
@@ -268,7 +334,7 @@ function CanvasInner({ boardId }: Props, ref: React.Ref<BoardHandle>) {
   const onConnectStart: OnConnectStart = useCallback((_, params) => {
     connectingFrom.current = params.nodeId ?? null;
     didConnectRef.current = false;
-    try { console.log('[WhyBoard] onConnectStart', params); } catch {}
+    
   }, []);
 
   const onConnectEnd: OnConnectEnd = useCallback(
@@ -276,7 +342,7 @@ function CanvasInner({ boardId }: Props, ref: React.Ref<BoardHandle>) {
       const targetEl = event.target as HTMLElement;
       const pane = targetEl?.closest(".react-flow__pane");
       const hitHandle = targetEl?.closest('.react-flow__handle');
-      try { console.log('[WhyBoard] onConnectEnd', { paneHit: !!pane, handleHit: !!hitHandle, connectingFrom: connectingFrom.current, didConnect: didConnectRef.current }); } catch {}
+      
       if (!hitHandle && pane && connectingFrom.current && !didConnectRef.current) {
         // 空白ペインへドロップ: 子ノードを作成（原因の場合は対策を生成）
         const parent = nodes.find((n) => n.id === connectingFrom.current);
@@ -413,45 +479,44 @@ function CanvasInner({ boardId }: Props, ref: React.Ref<BoardHandle>) {
       }
     },
     exportPng: async () => {
-      // React Flow 公式のダウンロード例に沿って、
-      // 1) 現在のビューポートを保存
-      // 2) 全ノードが収まるように fitBounds でビューポートを合わせる
-      // 3) .react-flow__viewport を html-to-image で PNG 化
-      // 4) 元のビューポートへ復元
       const root = containerRef.current;
       if (!root) return;
 
-      const prev = rf.getViewport();
-      const nodesForBounds = rf.getNodes();
-      const viewportEl = root.querySelector('.react-flow__viewport') as HTMLElement | null;
-
       try {
-        // ノードが1つも無い場合はそのままコンテナを撮る
-        if (nodesForBounds.length) {
-          const bounds = rf.getNodesBounds(nodesForBounds);
-          // 即時反映（アニメーション無し）
-          await rf.fitBounds(bounds, { padding: 0.1, duration: 0 });
-          // レイアウト反映を1フレーム待つ
-          await new Promise((r) => requestAnimationFrame(() => r(null)));
-        }
-
         const mod = await import('html-to-image');
-        const target = viewportEl ?? root;
-        const dataUrl = await mod.toPng(target, {
+
+        // 公式実装通り：ノードの境界とビューポートを計算
+        const nodesBounds = getNodesBounds(rf.getNodes());
+        const imageWidth = 1024;
+        const imageHeight = 768;
+        const viewport = getViewportForBounds(nodesBounds, imageWidth, imageHeight, 0.5, 2, 0);
+
+        // エラーチェック追加
+        const viewportElement = document.querySelector('.react-flow__viewport');
+        if (!viewportElement) {
+          throw new Error('React Flow viewport element not found');
+        }
+        // 以下はエラーチェック無し版で、型チェックエラー
+        // const dataUrl = await mod.toPng(document.querySelector('.react-flow__viewport'), {
+        const dataUrl = await mod.toPng(viewportElement as HTMLElement, {
           backgroundColor: '#ffffff',
-          pixelRatio: 2,
+          width: imageWidth,
+          height: imageHeight,
+          style: {
+            width: `${imageWidth}px`,
+            height: `${imageHeight}px`,
+            transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`,
+          },
         });
 
+        // ダウンロード実行
         const a = document.createElement('a');
-        a.href = dataUrl;
-        a.download = `board-${boardId}.png`;
+        a.setAttribute('download', `board-${boardId}.png`);
+        a.setAttribute('href', dataUrl);
         a.click();
       } catch (e) {
-        console.error(e);
-        alert('PNG エクスポートに失敗しました。依存関係のインストールを確認してください。');
-      } finally {
-        // ビューポートを元に戻す（アニメーション無し）
-        try { await rf.setViewport(prev, { duration: 0 }); } catch {}
+        console.error('PNG export error:', e);
+        alert('PNG エクスポートに失敗しました。');
       }
     },
     clearBoard: () => {
@@ -499,7 +564,11 @@ function CanvasInner({ boardId }: Props, ref: React.Ref<BoardHandle>) {
 
   // MARK: Render
   return (
-    <div ref={containerRef} className="w-full h-[calc(100vh-64px)]">
+    <div 
+      ref={containerRef} 
+      className="w-full h-[calc(100vh-64px)] pb-4 md:pb-6 lg:pb-8"
+      style={style}
+    >
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -516,7 +585,7 @@ function CanvasInner({ boardId }: Props, ref: React.Ref<BoardHandle>) {
         defaultEdgeOptions={defaultEdgeOptions}
         fitView={false}
       >
-        <Background />
+        <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="rgba(148, 163, 184, 0.3)" />
         <MiniMap />
         <Controls />
       </ReactFlow>
@@ -528,10 +597,10 @@ function CanvasInner({ boardId }: Props, ref: React.Ref<BoardHandle>) {
 const InnerWithRef = forwardRef<BoardHandle, Props>(CanvasInner);
 
 // MARK: エクスポート — ReactFlowProvider で内側を包む
-const WhyBoardCanvas = forwardRef<BoardHandle, Props>(function WhyBoardCanvas({ boardId }, ref) {
+const WhyBoardCanvas = forwardRef<BoardHandle, Props>(function WhyBoardCanvas({ boardId, style }, ref) {
   return (
     <ReactFlowProvider>
-      <InnerWithRef ref={ref} boardId={boardId} />
+      <InnerWithRef ref={ref} boardId={boardId} style={style} />
     </ReactFlowProvider>
   );
 });
