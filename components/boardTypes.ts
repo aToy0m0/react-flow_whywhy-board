@@ -15,6 +15,7 @@ export type WhyNodeData = {
   canDelete: (id: string) => boolean;
   onDelete: (id: string) => void;
   onAddChild: (parentId: string, type?: NodeType) => void;
+  onUpdateHeight?: (id: string, height: number) => void;
   openMenu: (id: string) => void;
   closeMenu: () => void;
   isMenuOpen: boolean;

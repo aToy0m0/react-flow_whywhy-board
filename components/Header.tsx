@@ -1,24 +1,26 @@
 "use client";
-import { 
+import {
   Menu,
   Home,
   ChevronLeft,
   RotateCcw,
   Grid3X3,
   Maximize,
-  HelpCircle
+  HelpCircle,
+  type LucideIcon,
 } from 'lucide-react';
-import Link from 'next/link';
+import Link, { type LinkProps } from 'next/link';
 import type { BoardHandle } from './boardActions';
 import WhyBoardIcon from './WhyBoardIcon';
 
 interface HeaderProps {
+  tenantId: string;
   boardId: string;
   onToggleSidebar: () => void;
   boardRef: React.RefObject<BoardHandle>;
 }
 
-export default function Header({ boardId, onToggleSidebar, boardRef }: HeaderProps) {
+export default function Header({ tenantId, boardId, onToggleSidebar, boardRef }: HeaderProps) {
   const openHelpWindow = () => {
     const helpWindow = window.open('', 'helpWindow', 'width=800,height=600,scrollbars=yes,resizable=yes');
     if (helpWindow) {
@@ -122,83 +124,51 @@ export default function Header({ boardId, onToggleSidebar, boardRef }: HeaderPro
             <WhyBoardIcon size={40} />
             <div>
               <h1 className="text-xl font-bold text-gray-800">WhyWhyボード</h1>
-              <div className="flex items-center space-x-2">
-                <span className="text-sm text-gray-500">{boardId}</span>
+              <div className="flex items-center space-x-2 text-sm text-gray-500">
+                <span>{tenantId}</span>
+                <span>／</span>
+                <span>{boardId}</span>
               </div>
             </div>
           </div>
         </div>
 
         <div className="flex items-center space-x-2">
-          {[
-            { 
-              icon: Home, 
-              color: "blue-600", 
-              label: "ホーム",
-              tooltip: "ホーム",
-              action: () => {},
-              component: Link,
-              href: "/"
-            },
-            { 
-              icon: ChevronLeft, 
-              color: "blue-600", 
-              label: "戻る",
-              tooltip: "戻る",
-              action: () => window.history.back()
-            },
-            { 
-              icon: RotateCcw, 
-              color: "red-600", 
-              label: "クリア",
-              tooltip: "全てのノードを削除",
-              action: () => boardRef.current?.clearBoard()
-            },
-            { 
-              icon: Grid3X3, 
-              color: "purple-600", 
-              label: "整列",
-              tooltip: "ノードを自動で整列",
-              action: () => boardRef.current?.relayoutAll()
-            },
-            { 
-              icon: Maximize, 
-              color: "orange-600", 
-              label: "フィット",
-              tooltip: "全体を画面に表示",
-              action: () => boardRef.current?.fitView()
-            },
-            { 
-              icon: HelpCircle, 
-              color: "green-600", 
-              label: "使い方",
-              tooltip: "なぜなぜ分析の使い方を別ウィンドウで表示",
-              action: openHelpWindow
-            }
-          ].map((item, index) => {
-            if (item.component === Link) {
+          {getMenuItems({ boardRef, openHelpWindow }).map((item) => {
+            const Icon = item.icon;
+            if (item.href) {
               return (
-                <Link 
-                  key={index}
-                  href={(item.href || "/") as any}
-                  className="flex flex-col items-center px-3 py-2 hover:bg-gray-50 rounded-xl transition-colors group relative" 
+                <Link
+                  key={item.label}
+                  href={item.href}
+                  className="flex flex-col items-center px-3 py-2 hover:bg-gray-50 rounded-xl transition-colors group relative"
                   title={item.tooltip}
                 >
-                  <item.icon size={18} className={`text-gray-600 group-hover:text-${item.color} transition-colors mb-1`} />
-                  <span className={`text-xs text-gray-600 group-hover:text-${item.color} transition-colors`}>{item.label}</span>
+                  <Icon
+                    size={18}
+                    className={`text-gray-600 group-hover:text-${item.color} transition-colors mb-1`}
+                  />
+                  <span className={`text-xs text-gray-600 group-hover:text-${item.color} transition-colors`}>
+                    {item.label}
+                  </span>
                 </Link>
               );
             }
-            
+
             return (
-              <button 
-                key={index} 
-                onClick={item.action}
-                className="flex flex-col items-center px-3 py-2 hover:bg-gray-50 rounded-xl transition-colors group relative" 
+              <button
+                key={item.label}
+                onClick={() => item.onClick?.()}
+                className="flex flex-col items-center px-3 py-2 hover:bg-gray-50 rounded-xl transition-colors group relative"
                 title={item.tooltip}
               >
-                <item.icon size={18} className={`text-gray-600 group-hover:text-${item.color} transition-colors mb-1`} />
-                <span className={`text-xs text-gray-600 group-hover:text-${item.color} transition-colors`}>{item.label}</span>
+                <Icon
+                  size={18}
+                  className={`text-gray-600 group-hover:text-${item.color} transition-colors mb-1`}
+                />
+                <span className={`text-xs text-gray-600 group-hover:text-${item.color} transition-colors`}>
+                  {item.label}
+                </span>
               </button>
             );
           })}
@@ -206,4 +176,68 @@ export default function Header({ boardId, onToggleSidebar, boardRef }: HeaderPro
       </div>
     </div>
   );
+}
+
+type MenuHref = LinkProps<string>['href'];
+
+type HeaderMenuItem = {
+  icon: LucideIcon;
+  color: string;
+  label: string;
+  tooltip: string;
+  href?: MenuHref;
+  onClick?: () => void;
+};
+
+function getMenuItems({
+  boardRef,
+  openHelpWindow,
+}: {
+  boardRef: React.RefObject<BoardHandle>;
+  openHelpWindow: () => void;
+}): HeaderMenuItem[] {
+  return [
+    {
+      icon: Home,
+      color: "blue-600",
+      label: "ホーム",
+      tooltip: "ホーム",
+      href: '/' satisfies MenuHref,
+    },
+    {
+      icon: ChevronLeft,
+      color: "blue-600",
+      label: "戻る",
+      tooltip: "戻る",
+      onClick: () => window.history.back(),
+    },
+    {
+      icon: RotateCcw,
+      color: "red-600",
+      label: "クリア",
+      tooltip: "全てのノードを削除",
+      onClick: () => boardRef.current?.clearBoard(),
+    },
+    {
+      icon: Grid3X3,
+      color: "purple-600",
+      label: "整列",
+      tooltip: "ノードを自動で整列",
+      onClick: () => boardRef.current?.relayoutAll(),
+    },
+    {
+      icon: Maximize,
+      color: "orange-600",
+      label: "フィット",
+      tooltip: "全体を画面に表示",
+      onClick: () => boardRef.current?.fitView(),
+    },
+    {
+      icon: HelpCircle,
+      color: "green-600",
+      label: "使い方",
+      tooltip: "なぜなぜ分析の使い方を別ウィンドウで表示",
+      onClick: openHelpWindow,
+    },
+  ];
 }

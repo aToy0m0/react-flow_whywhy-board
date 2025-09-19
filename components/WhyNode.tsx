@@ -1,5 +1,5 @@
 "use client";
-import { memo } from "react";
+import { memo, useEffect, useRef } from "react";
 import { Handle, Position, NodeProps, NodeToolbar } from "@xyflow/react";
 import type { Node as RFNode } from "@xyflow/react";
 import clsx from "clsx";
@@ -12,7 +12,7 @@ const colors: Record<NodeType, { border: string; bg: string }> = {
   action: { border: "border-blue-600", bg: "bg-blue-50" },
 };
 
-function Header({ type, parentLabel, index }: { type: NodeType; parentLabel?: string; index?: number; adopted?: boolean }) {
+function Header({ type, index }: { type: NodeType; index?: number; adopted?: boolean }) {
   if (type === "root") return <div className="text-sm font-semibold">問題</div>;
   if (type === "cause") {
     // return <div className="text-sm font-semibold">原因｜{parentLabel ?? ""} はなぜか</div>;
@@ -23,7 +23,7 @@ function Header({ type, parentLabel, index }: { type: NodeType; parentLabel?: st
   }
   return (
     <div className="text-sm font-semibold flex items-center gap-2">
-      {/* <span>なぜ{index ?? 0}｜{parentLabel ?? ""} はなぜか</span> */}
+      {/* <span>なぜ{index ?? 0}｜親ノードはなぜか</span> */}
       <span>なぜ{index ?? 0}</span>
     </div>
   );
@@ -31,9 +31,21 @@ function Header({ type, parentLabel, index }: { type: NodeType; parentLabel?: st
 
 function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
   const d = data as WhyNodeData; // 型を明示
-  const { parentLabel, index } = d.getParentInfo(id);
+  const { index } = d.getParentInfo(id);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const placeholder = d.type === "root" ? "問題" : d.type === "action" ? "対策" : "○○がｘｘだから";
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    if (d.heightHint) {
+      el.style.height = `${d.heightHint}px`;
+    } else {
+      el.style.height = 'auto';
+      el.style.height = `${el.scrollHeight}px`;
+    }
+  }, [d.heightHint, d.label]);
 
   return (
     <div
@@ -110,7 +122,7 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
         </div>
       </NodeToolbar>
       <div className="flex items-center">
-        <Header type={d.type} parentLabel={parentLabel} index={index} />
+        <Header type={d.type} index={index} />
         {(d.type === "why" || d.type === "cause") && (
           <label className="ml-auto inline-flex items-center gap-1 text-xs text-gray-600 select-none">
             <input
@@ -124,12 +136,14 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
         )}
       </div>
       <textarea
+        ref={textareaRef}
         value={d.label}
         onChange={(e) => d.onChangeLabel(id, e.target.value)}
         onInput={(e) => {
           const el = e.currentTarget;
           el.style.height = "auto";
           el.style.height = `${el.scrollHeight}px`;
+          d.onUpdateHeight?.(id, el.scrollHeight);
         }}
         onPointerDown={(e) => e.stopPropagation()}
         placeholder={placeholder}

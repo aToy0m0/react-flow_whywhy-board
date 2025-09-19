@@ -4,7 +4,9 @@ import {
   Upload, 
   Download, 
   FileText, 
-  Image, 
+  Image as ImageIcon,
+  Database,
+  RefreshCw,
   X 
 } from 'lucide-react';
 import type { BoardHandle } from './boardActions';
@@ -59,6 +61,28 @@ export default function Sidebar({ isOpen, onClose, boardRef, fileRef }: SidebarP
                 <div className="text-xs text-gray-500">保存済みファイルを読み込み</div>
               </div>
             </button>
+
+            <button 
+              onClick={() => boardRef.current?.saveRemote?.()}
+              className="flex items-center w-full p-4 text-left bg-white hover:bg-gray-50 rounded-xl transition-all duration-200 border border-blue-200 hover:border-blue-300 hover:shadow-md"
+            >
+              <Database size={20} className="text-blue-600 mr-4" />
+              <div>
+                <div className="font-semibold text-gray-800">サーバ保存</div>
+                <div className="text-xs text-gray-500">データベースへ保存</div>
+              </div>
+            </button>
+
+            <button 
+              onClick={() => boardRef.current?.loadRemote?.()}
+              className="flex items-center w-full p-4 text-left bg-white hover:bg-gray-50 rounded-xl transition-all duration-200 border border-blue-200 hover:border-blue-300 hover:shadow-md"
+            >
+              <RefreshCw size={20} className="text-blue-600 mr-4" />
+              <div>
+                <div className="font-semibold text-gray-800">サーバ読込</div>
+                <div className="text-xs text-gray-500">最新状態へ更新</div>
+              </div>
+            </button>
           </div>
 
           <div className="space-y-3">
@@ -90,7 +114,7 @@ export default function Sidebar({ isOpen, onClose, boardRef, fileRef }: SidebarP
               onClick={() => boardRef.current?.exportPng()}
               className="flex items-center w-full p-4 text-left bg-white hover:bg-gray-50 rounded-xl transition-all duration-200 border border-gray-100 hover:border-gray-200 hover:shadow-md group"
             >
-              <Image size={20} className="text-orange-600 mr-4 group-hover:scale-110 transition-transform" />
+              <ImageIcon size={20} className="text-orange-600 mr-4 group-hover:scale-110 transition-transform" aria-hidden />
               <div>
                 <div className="font-semibold text-gray-800">PNG書き出し</div>
                 <div className="text-xs text-gray-500">高品質画像として保存</div>

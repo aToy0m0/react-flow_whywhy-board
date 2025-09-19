@@ -3,12 +3,10 @@ import { useRef, useState } from "react";
 import WhyBoardCanvas from "@/components/WhyBoardCanvas";
 import Sidebar from "@/components/Sidebar";
 import Header from "@/components/Header";
-import FloatingHelpButton from "@/components/FloatingHelpButton";
-import Markdown from "@/components/Markdown";
 import type { BoardHandle } from "@/components/boardActions";
 
-export default function BoardPage({ params }: { params: { boardId: string } }) {
-  const { boardId } = params;
+export default function BoardPage({ params }: { params: { tenantId: string; boardId: string } }) {
+  const { tenantId, boardId } = params;
   const ref = useRef<BoardHandle>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -46,6 +44,7 @@ export default function BoardPage({ params }: { params: { boardId: string } }) {
       <div className="flex-1 flex flex-col">
         {/* ヘッダー */}
         <Header 
+          tenantId={tenantId}
           boardId={boardId}
           onToggleSidebar={toggleSidebar}
           boardRef={ref}
@@ -58,7 +57,7 @@ export default function BoardPage({ params }: { params: { boardId: string } }) {
             backgroundSize: '24px 24px'
           }} />
           <div className="relative z-10 h-full">
-            <WhyBoardCanvas ref={ref} boardId={boardId} />
+            <WhyBoardCanvas ref={ref} tenantId={tenantId} boardId={boardId} />
           </div>
         </div>
 

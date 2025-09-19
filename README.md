@@ -35,7 +35,7 @@ Docker version 28.0.1, build 068a01e
 cd whywhybord
 npm install
 npm run dev
-# http://localhost:3000/boards/dev を開く
+# http://localhost:3000/default/board/MVP を開く
 ```
 
 本番ビルド/起動

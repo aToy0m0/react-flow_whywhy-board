@@ -7,6 +7,11 @@ import type { Node as RFNode, Edge as RFEdge } from "@xyflow/react";
 import type { WhyNodeData } from "@/components/boardTypes";
 import { X_COL_GAP, BASE_NODE_HEIGHT, LINE_HEIGHT, SIBLING_BLOCK_PAD } from "@/lib/layoutConstants";
 
+type LayoutNode = RFNode<WhyNodeData> & {
+  measured?: { height?: number };
+  height?: number;
+};
+
 /**
  * MARK: getChildrenSorted — 親 → 子を取得し、作成順（createdAt）で安定ソート
  * - ノード追加順が視覚上の並び順に反映されるよう、createdAt の昇順で整列
@@ -45,29 +50,13 @@ export function computeLayoutForParent(
   const baseX = parent.position.x + X_COL_GAP;
 
   // 子孫探索用マップの構築
-  const nodesById = new Map(nodes.map((n) => [n.id, n] as const));
+  const nodesById = new Map<string, LayoutNode>(nodes.map((n) => [n.id, n as LayoutNode]));
   const childrenMap = new Map<string, string[]>();
   edges.forEach((e) => {
     const arr = childrenMap.get(e.source) ?? [];
     arr.push(e.target);
     childrenMap.set(e.source, arr);
   });
-
-  // MARK: 分岐サイズ（branchSize）を計算
-  // - 葉は 1
-  // - それ以外は 子の branchSize の総和
-  const memo = new Map<string, number>();
-  const branchSize = (id: string): number => {
-    if (memo.has(id)) return memo.get(id)!;
-    const kids = childrenMap.get(id) ?? [];
-    if (!kids.length) {
-      memo.set(id, 1);
-      return 1;
-    }
-    const sum = kids.reduce((acc, k) => acc + branchSize(k), 0);
-    memo.set(id, Math.max(1, sum));
-    return memo.get(id)!;
-  };
 
   // ノードの実高さを概算（複数行テキストに対応）
   // 高さ推定の定数（layoutConstants から参照）
@@ -77,9 +66,12 @@ export function computeLayoutForParent(
 
   // 実測サイズ（ReactFlow が計測した height）を優先し、無ければTOMLからのheightHint→ラベル行数で概算
   const estimateHeight = (id: string): number => {
-    const node: any = nodesById.get(id);
+    const node = nodesById.get(id);
     if (!node) return BASE_H + SIB_PAD;
-    const measured = (node.measured && node.measured.height) || node.height || node.data?.heightHint;
+    const measured =
+      (typeof node.measured?.height === "number" ? node.measured.height : undefined) ??
+      (typeof node.height === "number" ? node.height : undefined) ??
+      (typeof node.data?.heightHint === "number" ? node.data.heightHint : undefined);
     if (typeof measured === "number" && measured > 0) {
       return Math.ceil(measured) + SIB_PAD;
     }
@@ -97,8 +89,6 @@ export function computeLayoutForParent(
   };
 
   const childHeights = children.map((c) => nodeBlockHeight(c.id));
-  const totalHeight = childHeights.reduce((a, b) => a + b, 0);
-
   // 親Yを上端（トップ）として、子ブロックを下方向に積む
   // Web座標系はYが下方向に増えるため、"上に寄せる" には親Yを起点に正方向へ配置します。
   let cursor = parent.position.y;

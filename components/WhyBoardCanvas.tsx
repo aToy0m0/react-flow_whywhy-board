@@ -27,16 +27,16 @@ import type { Node as RFNode, Edge as RFEdge, NodeChange, Viewport } from "@xyfl
 import { Position } from "@xyflow/react";
 import { WhyNode } from "./WhyNode";
 import type { WhyNodeData, NodeType } from "./boardTypes";
-import type { BoardHandle } from "./boardActions";
+import type { BoardHandle, SerializedGraph } from "./boardActions";
 import { serializeGraph, deserializeGraph, toToml, fromToml } from "@/lib/boardIO";
 import { parentOf } from "@/lib/boardIO";
 import { getChildrenSorted, computeLayoutForParent } from "@/lib/boardLayout";
-import { setChildAdopted } from "@/lib/boardRules";
 import { useContextMenu } from "@/hooks/useContextMenu";
-import { EDGE_TYPE, STEP_EDGE_OFFSET, STEP_EDGE_RADIUS, X_COL_GAP, Y_ROW_GAP, CONNECT_RADIUS, FITVIEW_PADDING, DEFAULT_VIEWPORT, DEFAULT_ROOT_POS } from "@/lib/layoutConstants";
+import { EDGE_TYPE, STEP_EDGE_OFFSET, STEP_EDGE_RADIUS, X_COL_GAP, Y_ROW_GAP, FITVIEW_PADDING, DEFAULT_VIEWPORT, DEFAULT_ROOT_POS } from "@/lib/layoutConstants";
 
 // MARK: Props / 型エイリアス
 type Props = { 
+  tenantId: string;
   boardId: string;
   style?: React.CSSProperties;
 };
@@ -44,12 +44,20 @@ type Props = {
 type WNode = RFNode<WhyNodeData>;
 
 // MARK: ノードレンダラーのマップ
-const nodeTypes: any = { why: WhyNode };
+const nodeTypes: Record<string, typeof WhyNode> = { why: WhyNode };
+
+const TOAST_DURATION_MS = 4000;
+
+type ToastMessage = {
+  id: string;
+  text: string;
+};
 
 // MARK: CanvasInner — ReactFlow の Provider 配下で動く本体
-function CanvasInner({ boardId, style }: Props, ref: React.Ref<BoardHandle>) {
+function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHandle>) {
   const rf = useReactFlow();
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const tenantSlug = tenantId ?? process.env.NEXT_PUBLIC_TENANT_ID ?? 'default';
   const [nodes, setNodes, onNodesChange] = useNodesState<RFNode<WhyNodeData>>([
     {
       id: "root",
@@ -67,6 +75,7 @@ function CanvasInner({ boardId, style }: Props, ref: React.Ref<BoardHandle>) {
         canDelete: (id) => id !== "root",
         onDelete: () => {},
         onAddChild: () => {},
+        onUpdateHeight: () => {},
         openMenu: () => {},
         closeMenu: () => {},
         isMenuOpen: false,
@@ -75,11 +84,37 @@ function CanvasInner({ boardId, style }: Props, ref: React.Ref<BoardHandle>) {
   ]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<RFEdge>([]);
   const { menuOpenFor, openMenu, closeMenu } = useContextMenu(setNodes);
+  const [, setIsRemoteSyncing] = useState(false);
+  const mountedRef = useRef(true);
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const apiEndpoint = useMemo(() => `/api/tenants/${tenantSlug}/boards/${boardId}/nodes`, [tenantSlug, boardId]);
 
   // MARK: 接続ドラッグ中の接続元ノードIDを保持
   const connectingFrom = useRef<string | null>(null);
   // 直近に onConnect が成立したか（ハンドル同士の接続時は新規ノード追加を抑止）
   const didConnectRef = useRef<boolean>(false);
+  // 最新の addChildNode を保持し、ノードデータ経由のコールバックでズレないようにする
+  const latestAddChildNode = useRef<(parentId: string, type?: NodeType) => void>(() => {});
+  // enhanceNode の最新実体を保持し、非同期処理から参照する
+  const enhanceNodeRef = useRef<(node: WNode) => WNode>((node) => node);
+
+  const showToast = useCallback((text: string) => {
+    if (!mountedRef.current) return;
+    const id = `${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+    const message: ToastMessage = { id, text };
+    setToasts((prev) => [...prev, message]);
+    setTimeout(() => {
+      if (!mountedRef.current) return;
+      setToasts((prev) => prev.filter((toast) => toast.id !== id));
+    }, TOAST_DURATION_MS);
+  }, []);
 
   // MARK: クエリ — 親 -> 子（作成順で安定ソート）
   const getChildren = useCallback((parentId: string) => getChildrenSorted(nodes, edges, parentId), [nodes, edges]);
@@ -162,15 +197,6 @@ function CanvasInner({ boardId, style }: Props, ref: React.Ref<BoardHandle>) {
     []
   );
 
-  // MARK: 変更ヘルパー — node.data をパッチ
-  const updateNodeData = useCallback(
-    (id: string, patch: Partial<WhyNodeData>) =>
-      setNodes((nds) => nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...patch } } : n))),
-    [setNodes]
-  );
-
-
-
   // MARK: アクション — 採用トグル（なぜ<->原因 の切替）
   const onToggleAdopted = useCallback(
     (id: string, value: boolean) => {
@@ -182,45 +208,7 @@ function CanvasInner({ boardId, style }: Props, ref: React.Ref<BoardHandle>) {
         )
       );
     },
-    []
-  );
-
-  // MARK: ノード強化 — コールバック/状態を data に注入
-  const enhanceNode = useCallback(
-    (n: WNode): WNode => ({
-      ...n,
-      data: {
-        ...n.data,
-        boardId,
-        getParentInfo: (id: string) => getParentInfoRef.current?.(id) ?? {},
-        hasChildren: (id: string) => edges.some((e) => e.source === id),
-        hasCauseDescendant: (id: string) => {
-          const visited = new Set<string>();
-          const stack = edges.filter((e) => e.source === id).map((e) => e.target);
-          while (stack.length) {
-            const cur = stack.pop()!;
-            if (visited.has(cur)) continue;
-            visited.add(cur);
-            const node = nodes.find((nn) => nn.id === cur);
-            if (node?.data.type === 'cause') return true;
-            edges.filter((e) => e.source === cur).forEach((e) => stack.push(e.target));
-          }
-          return false;
-        },
-        canDelete: (id: string) => id !== "root",
-        onDelete: (id: string) => deleteNode(id),
-        onChangeLabel: (id: string, v: string) =>
-          setNodes((nds) => nds.map((nn) => (nn.id === id ? { ...nn, data: { ...nn.data, label: v } } : nn))),
-        onToggleAdopted,
-        onAddChild: (parentId: string, type?: NodeType) => {
-          addChildNodeRef.current(parentId, type);
-        },
-        openMenu: (id: string) => openMenu(id),
-        closeMenu: () => closeMenu(),
-        isMenuOpen: n.id === menuOpenFor,
-      },
-    }),
-    [boardId, getParentInfo, onToggleAdopted, setNodes, menuOpenFor, openMenu, closeMenu, edges]
+    [setNodes]
   );
 
   // 既存ノードに最新の getParentInfo プロキシを一括設定（初回のみ）
@@ -237,6 +225,68 @@ function CanvasInner({ boardId, style }: Props, ref: React.Ref<BoardHandle>) {
       setNodes((nds) => nds.filter((n) => n.id !== id));
     },
     [setNodes, setEdges]
+  );
+
+  // MARK: ノード強化 — コールバック/状態を data に注入
+  const enhanceNode = useCallback(
+    (node: WNode): WNode => {
+      const hasCauseDescendant = (id: string) => {
+        const visited = new Set<string>();
+        const stack = edges.filter((e) => e.source === id).map((e) => e.target);
+        while (stack.length) {
+          const current = stack.pop()!;
+          if (visited.has(current)) continue;
+          visited.add(current);
+          const found = nodes.find((candidate) => candidate.id === current);
+          if (found?.data.type === "cause") return true;
+          edges
+            .filter((edge) => edge.source === current)
+            .forEach((edge) => stack.push(edge.target));
+        }
+        return false;
+      };
+
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          boardId,
+          getParentInfo: (id: string) => getParentInfo(id),
+          hasChildren: (id: string) => edges.some((edge) => edge.source === id),
+          hasCauseDescendant,
+          canDelete: (id: string) => id !== "root",
+          onDelete: (id: string) => deleteNode(id),
+          onChangeLabel: (id: string, value: string) =>
+            setNodes((previous) =>
+              previous.map((item) =>
+                item.id === id ? { ...item, data: { ...item.data, label: value } } : item
+              )
+            ),
+          onUpdateHeight: (id: string, height: number) =>
+            setNodes((previous) =>
+              previous.map((item) =>
+                item.id === id ? { ...item, data: { ...item.data, heightHint: height } } : item
+              )
+            ),
+          onToggleAdopted,
+          onAddChild: (parentId: string, type?: NodeType) => {
+            latestAddChildNode.current(parentId, type);
+          },
+          openMenu: (id: string) => openMenu(id),
+          closeMenu: () => closeMenu(),
+          isMenuOpen: node.id === menuOpenFor,
+        },
+      };
+    },
+    [boardId, closeMenu, deleteNode, edges, getParentInfo, menuOpenFor, nodes, onToggleAdopted, openMenu, setNodes]
+  );
+  useEffect(() => {
+    enhanceNodeRef.current = enhanceNode;
+  }, [enhanceNode]);
+  // MARK: レイアウト — 親の右に子を等間隔 / 原因は最深子Yに揃える
+  const layoutChildren = useCallback(
+    (parentId: string) => setNodes((nds) => computeLayoutForParent(nds, edges, parentId)),
+    [edges, setNodes]
   );
 
   /**
@@ -299,7 +349,7 @@ function CanvasInner({ boardId, style }: Props, ref: React.Ref<BoardHandle>) {
             id: `e_${parentId}_${childId}`,
             source: parentId,
             target: childId,
-            type: EDGE_TYPE as any,
+            type: EDGE_TYPE,
             markerEnd: { type: MarkerType.ArrowClosed },
           },
           eds
@@ -310,13 +360,11 @@ function CanvasInner({ boardId, style }: Props, ref: React.Ref<BoardHandle>) {
       // 整列: 追加後に同一親の子を等間隔に再配置
       setTimeout(() => layoutChildren(parentId), 0);
     },
-    [nodes, getChildren, setNodes, setEdges, enhanceNode, boardId]
+    [boardId, enhanceNode, getChildren, layoutChildren, nodes, setEdges, setNodes]
   );
 
-  // 最新の addChildNode を参照するための ref（古いクロージャ回避）
-  const addChildNodeRef = useRef<(parentId: string, type?: NodeType) => void>(() => {});
   useEffect(() => {
-    addChildNodeRef.current = (pid: string, t?: NodeType) => addChildNode(pid, t);
+    latestAddChildNode.current = addChildNode;
   }, [addChildNode]);
 
   // MARK: XYFlow — 既存ハンドル同士の接続（エッジのみ追加）
@@ -324,7 +372,7 @@ function CanvasInner({ boardId, style }: Props, ref: React.Ref<BoardHandle>) {
     (connection: Connection) => {
       if (!connection.source || !connection.target) return;
       
-      setEdges((eds) => addEdge({ ...connection, type: EDGE_TYPE as any, markerEnd: { type: MarkerType.ArrowClosed } }, eds));
+      setEdges((eds) => addEdge({ ...connection, type: EDGE_TYPE, markerEnd: { type: MarkerType.ArrowClosed } }, eds));
       didConnectRef.current = true;
     },
     [setEdges]
@@ -380,7 +428,7 @@ function CanvasInner({ boardId, style }: Props, ref: React.Ref<BoardHandle>) {
 
   // MARK: ビューポート — onMoveEnd で保存
   const onMoveEnd = useCallback(
-    (_: any, viewport: Viewport) => {
+    (_event: unknown, viewport: Viewport) => {
       const key = `viewport_${boardId}`;
       localStorage.setItem(key, JSON.stringify(viewport));
     },
@@ -397,15 +445,9 @@ function CanvasInner({ boardId, style }: Props, ref: React.Ref<BoardHandle>) {
     []
   );
 
-  // MARK: レイアウト — 親の右に子を等間隔 / 原因は最深子Yに揃える
-  const layoutChildren = useCallback(
-    (parentId: string) => setNodes((nds) => computeLayoutForParent(nds, edges, parentId)),
-    [edges]
-  );
-
   // MARK: ノード変更 — 影響親の再整列（自由移動を優先するため実行は抑止）
   const onNodesChangeWithLayout = useCallback(
-    (changes: import("@xyflow/react").NodeChange<RFNode<WhyNodeData>>[]) => {
+    (changes: NodeChange<RFNode<WhyNodeData>>[]) => {
       onNodesChange(changes);
       const affectedParents = new Set<string>();
       changes.forEach((c) => {
@@ -418,7 +460,7 @@ function CanvasInner({ boardId, style }: Props, ref: React.Ref<BoardHandle>) {
       // 再度オンにしたい場合は以下を有効化
       // affectedParents.forEach((id) => layoutChildren(id));
     },
-    [onNodesChange, layoutChildren, getParent]
+    [getParent, onNodesChange]
   );
 
   // 初期ノードへコールバックを付与
@@ -432,6 +474,59 @@ function CanvasInner({ boardId, style }: Props, ref: React.Ref<BoardHandle>) {
     setNodes((nds) => nds.map((n) => ({ ...n, data: { ...n.data, isMenuOpen: n.id === menuOpenFor } })));
   }, [menuOpenFor, setNodes]);
 
+  const loadRemoteFromServer = useCallback(async () => {
+    if (!mountedRef.current) return;
+    setIsRemoteSyncing(true);
+    try {
+      console.debug('[WhyBoard] loadRemoteFromServer:start', { endpoint: apiEndpoint });
+      const headers: HeadersInit = {};
+      if (typeof window !== 'undefined') {
+        const token = localStorage.getItem('whywhy-basic');
+        if (token) headers['Authorization'] = `Basic ${token}`;
+      }
+      const res = await fetch(apiEndpoint, { cache: 'no-store', credentials: 'include', headers });
+      if (!res.ok) {
+        console.error('[WhyBoard] Failed to load board from server', res.statusText);
+        return;
+      }
+      const data = (await res.json()) as { graph?: SerializedGraph };
+      const graph = data?.graph;
+      if (graph && Array.isArray(graph.nodes) && graph.nodes.length) {
+        const enhancer = enhanceNodeRef.current;
+        const { nodes: n2, edges: e2 } = deserializeGraph(graph, enhancer);
+        if (!mountedRef.current) return;
+        setNodes(n2);
+        setEdges(e2);
+        requestAnimationFrame(() => {
+          try {
+            rf.fitView({ padding: FITVIEW_PADDING });
+          } catch (error) {
+            console.warn('[WhyBoard] loadRemoteFromServer: fitView failed', error);
+          }
+        });
+        console.debug('[WhyBoard] loadRemoteFromServer:applied', {
+          nodeCount: graph.nodes.length,
+          edgeCount: graph.edges.length,
+        });
+        showToast(`ボード読込: ${boardId} (${new Date().toLocaleTimeString()})`);
+      } else {
+        console.debug('[WhyBoard] loadRemoteFromServer:empty graph');
+        setEdges([]);
+        showToast(`ボード読込: ${boardId} (データなし)`);
+      }
+    } catch (error) {
+      console.error('[WhyBoard] loadRemote error', error);
+    } finally {
+      if (mountedRef.current) {
+        setIsRemoteSyncing(false);
+      }
+    }
+  }, [apiEndpoint, boardId, rf, setEdges, setIsRemoteSyncing, setNodes, showToast]);
+
+  useEffect(() => {
+    void loadRemoteFromServer();
+  }, [loadRemoteFromServer]);
+
   // MARK: BoardHandle — ヘッダーから呼び出す公開API
   useImperativeHandle(ref, () => ({
     saveLocal: () => {
@@ -443,19 +538,68 @@ function CanvasInner({ boardId, style }: Props, ref: React.Ref<BoardHandle>) {
       // TOML テキストとして読み込み
       const raw = localStorage.getItem("whywhy-board");
       if (!raw) return;
-      try {
-        const s = { nodes: [], edges: [] } as any;
-        // TOML を解析してグラフ化
-        // 既存 fromToml を利用
-        // 直接 importTomlText と同処理
-        (async () => {
+      void (async () => {
+        try {
           const parsed = await fromToml(raw);
           const { nodes: n2, edges: e2 } = deserializeGraph(parsed, enhanceNode);
           setNodes(n2);
           setEdges(e2);
           setTimeout(() => rf.fitView({ padding: FITVIEW_PADDING }), 0);
-        })();
-      } catch {}
+        } catch (error) {
+          console.error('[WhyBoard] loadLocal error', error);
+        }
+      })();
+    },
+    saveRemote: async () => {
+      if (!mountedRef.current) return;
+      setIsRemoteSyncing(true);
+      try {
+        console.debug('[WhyBoard] saveRemote:start', {
+          endpoint: apiEndpoint,
+          nodeCount: nodes.length,
+          edgeCount: edges.length,
+        });
+        const graph = serializeGraph(nodes, edges);
+        const headers: HeadersInit = { 'Content-Type': 'application/json' };
+        if (typeof window !== 'undefined') {
+          const token = localStorage.getItem('whywhy-basic');
+          if (token) headers['Authorization'] = `Basic ${token}`;
+        }
+        const res = await fetch(apiEndpoint, {
+          method: 'PUT',
+          headers,
+          credentials: 'include',
+          body: JSON.stringify({ name: boardId, graph }),
+        });
+        if (!res.ok) {
+          console.error('[WhyBoard] Failed to save board to server', res.statusText);
+          return;
+        }
+        const data = (await res.json()) as { graph?: SerializedGraph };
+        if (data?.graph && Array.isArray(data.graph.nodes)) {
+          const enhancer = enhanceNodeRef.current;
+          const { nodes: n2, edges: e2 } = deserializeGraph(data.graph, enhancer);
+          if (!mountedRef.current) return;
+          setNodes(n2);
+          setEdges(e2);
+          console.debug('[WhyBoard] saveRemote:applied response', {
+            nodeCount: data.graph.nodes.length,
+            edgeCount: data.graph.edges.length,
+          });
+        } else {
+          console.debug('[WhyBoard] saveRemote:server returned no graph payload');
+        }
+        showToast(`ボード保存: ${boardId} (${new Date().toLocaleTimeString()})`);
+      } catch (error) {
+        console.error('[WhyBoard] saveRemote error', error);
+      } finally {
+        if (mountedRef.current) {
+          setIsRemoteSyncing(false);
+        }
+      }
+    },
+    loadRemote: async () => {
+      await loadRemoteFromServer();
     },
     exportToml: () => {
       const text = toToml(boardId, nodes, edges);
@@ -498,15 +642,23 @@ function CanvasInner({ boardId, style }: Props, ref: React.Ref<BoardHandle>) {
         }
         // 以下はエラーチェック無し版で、型チェックエラー
         // const dataUrl = await mod.toPng(document.querySelector('.react-flow__viewport'), {
+        const styleOverrides: Partial<CSSStyleDeclaration> = {
+          width: `${imageWidth}px`,
+          height: `${imageHeight}px`,
+          transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`,
+          transformOrigin: '0 0',
+          color: '#111111',
+        };
+        (styleOverrides as Record<string, string>)['--xy-edge-stroke'] = '#111111';
+        (styleOverrides as Record<string, string>)['--xy-edge-stroke-selected'] = '#1d4ed8';
+        (styleOverrides as Record<string, string>)['--xy-edge-label-background'] = '#ffffff';
+
         const dataUrl = await mod.toPng(viewportElement as HTMLElement, {
           backgroundColor: '#ffffff',
           width: imageWidth,
           height: imageHeight,
-          style: {
-            width: `${imageWidth}px`,
-            height: `${imageHeight}px`,
-            transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`,
-          },
+          cacheBust: true,
+          style: styleOverrides,
         });
 
         // ダウンロード実行
@@ -538,6 +690,7 @@ function CanvasInner({ boardId, style }: Props, ref: React.Ref<BoardHandle>) {
           canDelete: () => true,
           onDelete: () => {},
           onAddChild: () => {},
+          onUpdateHeight: () => {},
           hasChildren: () => false,
           openMenu: () => {},
           closeMenu: () => {},
@@ -587,8 +740,20 @@ function CanvasInner({ boardId, style }: Props, ref: React.Ref<BoardHandle>) {
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="rgba(148, 163, 184, 0.3)" />
         <MiniMap />
-        <Controls />
-      </ReactFlow>
+      <Controls />
+    </ReactFlow>
+      {toasts.length > 0 && (
+        <div className="pointer-events-none fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 flex-col gap-2">
+          {toasts.map((toast) => (
+            <div
+              key={toast.id}
+              className="pointer-events-auto rounded-lg bg-black/80 px-4 py-2 text-sm text-white shadow-lg backdrop-blur"
+            >
+              {toast.text}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

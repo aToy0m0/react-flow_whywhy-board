@@ -1,0 +1,83 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+ datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum NodeCategory {
+  Root
+  Why
+  Cause
+  Action
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+model Tenant {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  name      String
+  boards    Board[]
+  users     User[]
+  nodes     Node[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Board {
+  id        String   @id @default(cuid())
+  tenantId  String
+  boardKey  String
+  name      String
+  ownerId   String?
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  owner     User?    @relation("BoardOwner", fields: [ownerId], references: [id])
+  nodes     Node[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, boardKey])
+  @@index([tenantId])
+  @@index([ownerId])
+}
+
+model Node {
+  id         String       @id @default(cuid())
+  tenantId   String
+  boardId    String
+  nodeKey    String?
+  tenant     Tenant       @relation(fields: [tenantId], references: [id])
+  board      Board        @relation(fields: [boardId], references: [id])
+  content    String
+  depth      Int
+  category   NodeCategory @default(Why)
+  tags       String[]     @default([])
+  prevNodes  String[]     @default([])
+  nextNodes  String[]     @default([])
+  x          Float        @default(0)
+  y          Float        @default(0)
+  adopted    Boolean      @default(false)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  @@index([tenantId, boardId])
+  @@unique([tenantId, boardId, nodeKey])
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  role         UserRole  @default(USER)
+  tenantId     String
+  tenant       Tenant    @relation(fields: [tenantId], references: [id])
+  boards       Board[]   @relation("BoardOwner")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}

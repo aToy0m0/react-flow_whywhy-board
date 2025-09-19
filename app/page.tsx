@@ -1,80 +1,131 @@
 import Link from "next/link";
-// import Link from "next/link";
+
+const DEFAULT_TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? 'default';
+const DEFAULT_BOARD_ID = 'MVP';
+
+type QuickLink =
+  | {
+      kind: 'board';
+      title: string;
+      description: string;
+      boardId: string;
+      boardTenantId?: string;
+      accent: string;
+    }
+  | {
+      kind: 'static';
+      title: string;
+      description: string;
+      href: '/login' | '/docs';
+      accent: string;
+    };
+
+const quickLinks: ReadonlyArray<QuickLink> = [
+  {
+    kind: 'board',
+    title: "ボード一覧",
+    description: "最新の WhyWhy ボードにアクセスして分析を始めましょう。",
+    boardId: DEFAULT_BOARD_ID,
+    accent: "from-sky-500/20 to-sky-500/10",
+  },
+  {
+    kind: 'static',
+    title: "サインイン",
+    description: "認証情報を保存して API アクセスをスムーズに。",
+    href: '/login',
+    accent: "from-emerald-500/20 to-emerald-500/10",
+  },
+  {
+    kind: 'static',
+    title: "ドキュメント",
+    description: "Docker セットアップや API 仕様を確認できます。",
+    href: '/docs',
+    accent: "from-purple-500/20 to-purple-500/10",
+  },
+];
+
+const guidance = [
+  "問題ノードからスタートし、ハンドルドラッグで次の「なぜ」を追加",
+  "原因ノードを採用すると対策ノードが追加可能に",
+  "サイドバーからサーバ保存・PNG 出力が利用可能",
+  "複数行テキストの高さは自動で保存・復元されます",
+];
 
 export default function HomePage() {
   return (
-    // <style>
-    //   body { 
-    //     font-family: system-ui, -apple-system, sans-serif; 
-    //     line-height: 1.6; 
-    //     padding: 20px; 
-    //     max-width: 800px; 
-    //     margin: 0 auto;
-    //     background-color: #f8fafc;
-    //     color: #374151;
-    //   }
-    //   h1, h2 { 
-    //     color: #1e3a8a; 
-    //     border-bottom: 2px solid #dbeafe; 
-    //     padding-bottom: 8px; 
-    //   }
-    //   h1 { font-size: 1.8em; margin-bottom: 1em; }
-    //   h2 { font-size: 1.3em; margin-top: 2em; margin-bottom: 1em; }
-    //   ul, ol { margin: 1em 0; padding-left: 2em; }
-    //   li { margin: 0.5em 0; }
-    //   .section { 
-    //     background: white; 
-    //     padding: 20px; 
-    //     margin: 20px 0; 
-    //     border-radius: 8px; 
-    //     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    //   }
-    //   .highlight { 
-    //     background-color: #fef3c7; 
-    //     padding: 12px; 
-    //     border-radius: 6px; 
-    //     border-left: 4px solid #f59e0b;
-    //     margin: 1em 0;
-    //   }
-    // </style>
-    <main className="p-6">
-      <h1 className="text-2xl font-bold mb-4">WhyWhy Board</h1>
-      <p>ボード画面へ移動：<Link className="text-blue-600 underline" href="/boards/MVP">ここをクリック</Link></p>
-      {/* <ul className="list-disc list-inside">
-        <li>
-          <Link className="text-blue-600 underline" href="/boards/dev">/boards/dev</Link>
-        </li>
-      </ul> */}
+    <main className="min-h-screen bg-slate-950 text-slate-100">
+      <div className="mx-auto w-full max-w-6xl px-6 pb-16 pt-20 lg:pb-24 lg:pt-28">
+        <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-sky-500/20 via-sky-400/5 to-transparent p-10 shadow-2xl">
+          <div className="relative z-10 space-y-6">
+            <p className="inline-flex rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.4em] text-slate-200">
+              WhyWhy Board
+            </p>
+            <h1 className="text-4xl font-bold tracking-tight text-white md:text-5xl">
+              チームで使える「なぜなぜ分析」ボード
+            </h1>
+            <p className="max-w-2xl text-lg text-slate-200">
+              WhyWhy Board は、問題の根本原因を追求するためのコラボレーションツールです。編集内容はデータベースに保存され、PNG や TOML へのエクスポートにも対応しています。
+            </p>
+            <div className="flex flex-wrap gap-4">
+              <Link
+                href={`/${DEFAULT_TENANT_ID}/board/${DEFAULT_BOARD_ID}`}
+                className="rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-900 shadow-lg transition hover:bg-slate-100"
+              >
+                ボードを開く
+              </Link>
+              <Link
+                href="/login"
+                className="rounded-xl border border-white/30 px-5 py-3 text-sm font-semibold text-white transition hover:border-white/60 hover:bg-white/10"
+              >
+                認証する
+              </Link>
+            </div>
+          </div>
+          <div className="pointer-events-none absolute -right-32 bottom-0 aspect-[4/3] w-96 rotate-12 rounded-full bg-white/5 blur-3xl" />
+        </section>
 
-      <p className="mb-4"></p>
-      <h1 className="text-2xl font-bold mb-4">なぜなぜ分析の使い方</h1>
-      
-        <strong font-color="#1e3a8a">基本的な使い方</strong>
-        <ul className="list-disc list-inside">
-          <li>始めに「問題」ノードに問題を記入してください。</li>
-          <li>「ノードを右クリック」するか、「ノード右の・(ハンドル)を何もないところにドラッグ」すると次のノードを追加できます。</li>
-          <li>下記の準備と注意事項に沿ってなぜなぜ分析を進めてください。</li>
-        </ul>
+        <section className="mt-16 grid gap-6 md:grid-cols-3">
+          {quickLinks.map((link) => {
+            const href =
+              link.kind === 'board'
+                ? `/${link.boardTenantId ?? DEFAULT_TENANT_ID}/board/${link.boardId}`
+                : link.href;
+            return (
+            <Link
+              key={link.title}
+              href={href}
+              className={`group relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br ${link.accent} p-6 shadow-lg transition hover:border-white/30 hover:shadow-2xl`}
+            >
+              <div className="relative z-10 space-y-3">
+                <h2 className="text-xl font-semibold text-white">{link.title}</h2>
+                <p className="text-sm text-slate-200">{link.description}</p>
+                <span className="inline-flex items-center text-sm font-semibold text-sky-200">
+                  詳細を見る <span className="ml-1">→</span>
+                </span>
+              </div>
+              <div className="absolute inset-0 bg-gradient-to-br from-white/10 via-transparent to-transparent opacity-0 transition group-hover:opacity-100" />
+            </Link>
+            );
+          })}
+        </section>
 
-      <p className="mb-4"></p>
-      <strong>事前準備と注意ポイント</strong>
-      <ul>
-        <li>(a) 問題を整理（羅列）し、事実をしっかりつかむこと。</li>
-        <li>(b) 問題となっている部分の仕組み（構造）や役割（機能）を理解しておくこと。</li>
-      </ul>
-
-      <p className="mb-4"></p>
-      <strong>重要な注意ポイント</strong>
-      <ul className="list-disc list-inside">
-        <li>「現象」や「なぜ」のところに書く文章は短く、簡潔に、「〇〇がｘｘだから」という形にする。</li>
-        <li>「なぜなぜ分析」を終了した後、必ず最後の「なぜ」の部分から「現象」まで遡る形で読んでいくことにより、論理的に正しいか確認する。</li>
-        <li>その前の事象に対して要因がすべて挙げられているか、ということをその逆（その要因が発生しなければ、その前に書かれている事象は発生しない）かを考えてチェックする。</li>
-        <li>再発防止策につながるような要因が出てくるところまで「なぜ」を続ける。</li>
-        <li>正常からずれている（異常）と思われることだけを書く。</li>
-        <li>人間の心の側面への原因追求（ぼーっとしていた、疲れていた、といった事柄）は避ける。</li>
-        <li>文中に「悪い」という言葉は使わない。</li>
-      </ul>
+        <section className="mt-16 rounded-3xl border border-white/10 bg-white/5 p-8 shadow-xl backdrop-blur">
+          <h2 className="text-2xl font-semibold text-white">使いこなすためのポイント</h2>
+          <div className="mt-6 grid gap-4 md:grid-cols-2">
+            {guidance.map((tip) => (
+              <div key={tip} className="rounded-2xl bg-black/30 p-5 text-sm text-slate-200">
+                {tip}
+              </div>
+            ))}
+          </div>
+          <div className="mt-8 flex flex-wrap items-center gap-3 text-sm text-slate-300">
+            <span className="rounded-full bg-sky-500/20 px-3 py-1 text-sky-100">サーバ保存</span>
+            <span className="rounded-full bg-emerald-500/20 px-3 py-1 text-emerald-100">PNG 出力</span>
+            <span className="rounded-full bg-purple-500/20 px-3 py-1 text-purple-100">TOML インポート</span>
+            <span className="rounded-full bg-amber-500/20 px-3 py-1 text-amber-100">高さの自動復元</span>
+          </div>
+        </section>
+      </div>
     </main>
   );
 }
-

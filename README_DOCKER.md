@@ -20,24 +20,54 @@
 
 ---
 
-## 起動手順
+## 必須環境変数
+`.env` あるいは `docker-compose.yml` の `environment` セクションで以下を設定します。
 
-### 1. リポジトリを取得
-```bash
-git clone <REPO_URL>
-cd yy-board_nextjs/docker
-```
+| 変数 | 用途 | 例 |
+| ---- | ---- | -- |
+| `DATABASE_URL` | Prisma / アプリの DB 接続文字列 | `postgresql://whyboard:whyboard@db:5432/whyboard` |
+| `BASIC_AUTH_USER` | Basic 認証ユーザー名 | `admin@example.com` |
+| `BASIC_AUTH_PASSWORD` | Basic 認証パスワード | `changeme` |
+| `NEXT_PUBLIC_TENANT_ID` | テナント識別子 | `default` |
+| `NEXT_PUBLIC_API_BASE_URL` | フロントからの API ベース URL | `http://localhost:3000` |
+| `NEXT_PUBLIC_REPO_URL` | ドキュメント参照用のリポジトリ URL（任意） | `https://github.com/your-org/your-repo/blob/main` |
 
-### 2. コンテナをビルド & 起動
-```bash
-docker compose up -d --build
-```
+Dockerfile にも既定値が入っていますが、実環境では `.env` で上書きしてください。
 
-### 3. アプリにアクセス
-ブラウザで以下を開く：
-```
-http://localhost:3000
-```
+---
+
+## 初回セットアップ
+
+リポジトリのルート（`yy-board_nextjs/whywhybord`）で以下を実行します。
+
+1. **Docker ネットワークと DB の起動**
+   ```bash
+   docker compose up -d db
+   ```
+
+2. **Prisma マイグレーションの適用**（DB スキーマ生成）
+   ```bash
+   docker compose run --rm \
+     -v "$(pwd)/prisma:/app/prisma" \
+     web npx prisma migrate dev --name init --schema prisma/schema.prisma
+   ```
+
+3. **Prisma クライアントの生成**
+   ```bash
+   docker compose run --rm \
+     -v "$(pwd)/prisma:/app/prisma" \
+     web npx prisma generate --schema prisma/schema.prisma
+   ```
+
+4. **アプリ本体のビルド & 起動**
+   ```bash
+   docker compose up -d --build
+   ```
+
+5. **動作確認**
+   ブラウザで `http://localhost:3000` にアクセスし、Basic 認証を通過できれば成功です。
+
+> **Note:** 既に DB ボリュームが存在する場合はマイグレーションのみを再実行してください。`DATABASE_URL` が `postgresql://...@db:5432/...` になっていれば `web` コンテナから `db` に接続できます。
 
 ---
 
@@ -124,6 +154,7 @@ services:
 ### ビルドが失敗する場合
 - Node.js のバージョンを確認してください（Dockerfile は `node:20-alpine` を使用）。  
 - `package-lock.json` が壊れている場合は削除して再度 `docker compose build` を実行してください。  
+- Prisma スキーマが見つからない場合は、`dockerfile` に `COPY --chown=node:node --from=builder /app/prisma ./prisma` が含まれていることと、`npx prisma generate --schema prisma/schema.prisma` を実行済みであることを確認してください。
 
 ### ポート競合がある場合
 - すでにポート `3000` を使っているアプリがあると起動できません。  
@@ -142,6 +173,6 @@ ports:
 
 - Nginx を追加して静的ファイル配信専用にすることも可能です。  
 - PostgreSQL や Redis を追加したい場合は `docker-compose.yml` に追記してマルチサービス構成にできます。  
-- CI/CD（GitHub Actions など）と組み合わせれば、自動デプロイも可能です。  
+- CI/CD（GitHub Actions など）と組み合わせれば、自動デプロイも可能です。マイグレーションは `docker compose run --rm web npx prisma migrate deploy --schema prisma/schema.prisma` を組み込むと安全です。  
 
 ---

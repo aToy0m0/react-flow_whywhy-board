@@ -1,6 +1,56 @@
+import { stringify } from "@iarna/toml";
 import type { Node as RFNode, Edge as RFEdge } from "@xyflow/react";
 import type { WhyNodeData, NodeType } from "@/components/boardTypes";
 import type { SerializedGraph, SerializedNode, SerializedEdge } from "@/components/boardActions";
+
+type NodeWithMeasurements = RFNode<WhyNodeData> & {
+  measured?: { height?: number };
+  height?: number;
+};
+
+type TomlExportNode = {
+  tenantid: string;
+  boardid: string;
+  nodeid: string;
+  content: string;
+  depth: number;
+  category: "Root" | "Why" | "Cause" | "Action";
+  adopted?: boolean;
+  uiHeight?: number;
+  tags: string[];
+  prevNodes: string[];
+  nextNodes: string[];
+  x: number;
+  y: number;
+  parent?: string;
+};
+
+type TomlExport = {
+  board: { tenantid: string; boardid: string };
+  nodes: TomlExportNode[];
+  edges: Array<{ tenantid: string; boardid: string; source: string; target: string }>;
+};
+
+type ParsedToml = {
+  board?: Record<string, unknown>;
+  nodes: Array<Record<string, unknown>>;
+  edges: Array<Record<string, unknown>>;
+};
+
+const toStringOrUndefined = (value: unknown): string | undefined =>
+  typeof value === "string" && value.length > 0 ? value : undefined;
+
+const toNumberOrUndefined = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isFinite(value) ? value : undefined;
+
+const toBooleanOrUndefined = (value: unknown): boolean | undefined => {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    if (value === "true") return true;
+    if (value === "false") return false;
+  }
+  return undefined;
+};
 
 export function serializeGraph(nodes: RFNode<WhyNodeData>[], edges: RFEdge[]): SerializedGraph {
   const sNodes: SerializedNode[] = nodes.map((n) => ({
@@ -77,7 +127,7 @@ export function calcDepths(
     starts = [rootId!];
   } else {
     // Prefer nodes explicitly marked as type 'root'
-    const rootTyped = nodes.filter((n) => n.data?.type === ("root" as any)).map((n) => n.id);
+    const rootTyped = nodes.filter((n) => n.data?.type === "root").map((n) => n.id);
     if (rootTyped.length) {
       starts = rootTyped;
     } else {
@@ -138,47 +188,59 @@ export function toToml(boardId: string, nodes: RFNode<WhyNodeData>[], edges: RFE
     }
   };
 
-  const obj: any = {
-    board: { tenantid: tenantId, boardid: boardId },
-    nodes: nodes.map((n) => ({
+  const exportNodes: TomlExportNode[] = nodes.map((node) => {
+    const measuredNode = node as NodeWithMeasurements;
+    const measuredHeight = typeof measuredNode.measured?.height === "number" ? measuredNode.measured.height : undefined;
+    const fallbackHeight = typeof measuredNode.height === "number" ? measuredNode.height : undefined;
+    const uiHeight = node.data.heightHint ?? measuredHeight ?? fallbackHeight;
+
+    return {
       tenantid: tenantId,
       boardid: boardId,
-      nodeid: n.id,
-      content: String(n.data.label ?? ""),
-      depth: depthMap[n.id] ?? 0,
-      category: toCategory(n.data.type),
-      adopted: typeof n.data.adopted === "boolean" ? n.data.adopted : undefined,
-      uiHeight: (n as any).measured?.height ?? (n as any).height ?? undefined,
+      nodeid: node.id,
+      content: String(node.data.label ?? ""),
+      depth: depthMap[node.id] ?? 0,
+      category: toCategory(node.data.type),
+      adopted: typeof node.data.adopted === "boolean" ? node.data.adopted : undefined,
+      uiHeight: uiHeight ?? node.data.heightHint ?? undefined,
       tags: [],
-      prevNodes: edges.filter((e) => e.target === n.id).map((e) => e.source),
-      nextNodes: edges.filter((e) => e.source === n.id).map((e) => e.target),
-      x: Math.round(n.position.x),
-      y: Math.round(n.position.y),
-      parent: parentOf(n.id, edges) ?? undefined,
-    })),
-    edges: edges.map((e) => ({ tenantid: tenantId, boardid: boardId, source: e.source, target: e.target })),
+      prevNodes: edges.filter((edge) => edge.target === node.id).map((edge) => edge.source),
+      nextNodes: edges.filter((edge) => edge.source === node.id).map((edge) => edge.target),
+      x: Math.round(node.position.x),
+      y: Math.round(node.position.y),
+      parent: parentOf(node.id, edges) ?? undefined,
+    };
+  });
+
+  const exportPayload: TomlExport = {
+    board: { tenantid: tenantId, boardid: boardId },
+    nodes: exportNodes,
+    edges: edges.map((edge) => ({ tenantid: tenantId, boardid: boardId, source: edge.source, target: edge.target })),
   };
 
   // 公式TOMLライブラリで安全にシリアライズ（複数行・エスケープ対応）
-  const { stringify } = require("@iarna/toml");
-  return stringify(obj);
+  return stringify(exportPayload);
 }
 
 export async function fromToml(text: string): Promise<SerializedGraph> {
-  // Prefer @iarna/toml if available
-  let parsed: any;
+  let parsed: ParsedToml = { nodes: [], edges: [] };
   try {
     const toml = await import("@iarna/toml");
-    parsed = toml.parse(text);
+    const result = toml.parse(text) as ParsedToml;
+    parsed = {
+      board: result.board,
+      nodes: Array.isArray(result.nodes) ? result.nodes : [],
+      edges: Array.isArray(result.edges) ? result.edges : [],
+    };
   } catch {
-    // Fallback very naive parser for this specific structure
     parsed = naiveParseToml(text);
   }
-  const boardId: string | undefined = parsed?.board?.boardid ?? parsed?.board?.id;
-  const ns: any[] = parsed?.nodes ?? [];
-  const es: any[] = parsed?.edges ?? [];
-  const toNodeType = (cat?: string, id?: string): NodeType => {
-    const c = String(cat ?? "").toUpperCase();
+
+  const nodeRecords = parsed.nodes ?? [];
+  const edgeRecords = parsed.edges ?? [];
+
+  const toNodeType = (categoryValue: unknown, id?: string): NodeType => {
+    const c = toStringOrUndefined(categoryValue)?.toUpperCase() ?? "";
     switch (c) {
       case "ROOT":
       case "ROOT_CAUSE":
@@ -194,38 +256,57 @@ export async function fromToml(text: string): Promise<SerializedGraph> {
         return id === "root" ? "root" : "why";
     }
   };
-  const nodes: SerializedNode[] = ns.map((n, i) => {
-    const type = toNodeType(String(n.category), n.nodeid ?? n.id);
-    const hasAdopted = n.adopted !== undefined;
-    const adopted = hasAdopted ? Boolean(n.adopted) : type === "cause";
+
+  const nodes: SerializedNode[] = nodeRecords.map((record, index) => {
+    const nodeId =
+      toStringOrUndefined(record["nodeid"]) ??
+      toStringOrUndefined(record["id"]) ??
+      `node-${index}`;
+
+    const type = toNodeType(record["category"], nodeId);
+    const adopted = toBooleanOrUndefined(record["adopted"]) ?? (type === "cause");
+
     return {
-      id: String(n.nodeid ?? n.id),
-      x: Number(n.x ?? 0),
-      y: Number(n.y ?? 0),
-      label: String(n.content ?? n.label ?? ""),
+      id: nodeId,
+      x: toNumberOrUndefined(record["x"]) ?? 0,
+      y: toNumberOrUndefined(record["y"]) ?? 0,
+      label:
+        toStringOrUndefined(record["content"]) ??
+        toStringOrUndefined(record["label"]) ??
+        "",
       type,
       adopted,
-      // 読み込み出現順を createdAt に反映（安定ソート用）
-      createdAt: Date.now() + i,
-      uiHeight: typeof n.uiHeight === 'number' ? Number(n.uiHeight) : undefined,
-    } as SerializedNode;
+      createdAt: Date.now() + index,
+      uiHeight: toNumberOrUndefined(record["uiHeight"]),
+    } satisfies SerializedNode;
   });
-  let edges: SerializedEdge[] = es.map((e) => ({ id: `e_${e.source}_${e.target}`, source: String(e.source), target: String(e.target) }));
+
+  const edges: SerializedEdge[] = edgeRecords
+    .map((record) => {
+      const source = toStringOrUndefined(record["source"]);
+      const target = toStringOrUndefined(record["target"]);
+      if (!source || !target) return null;
+      return { id: `e_${source}_${target}`, source, target };
+    })
+    .filter((edge): edge is SerializedEdge => edge !== null);
+
   if (!edges.length) {
-    // Generate edges from parent
-    nodes.forEach((n) => {
-      const raw = ns.find((r) => String(r.nodeid ?? r.id) === n.id);
-      const p = (raw as any)?.parent;
-      if (p) edges.push({ id: `e_${String(p)}_${n.id}`, source: String(p), target: n.id });
+    nodeRecords.forEach((record) => {
+      const childId = toStringOrUndefined(record["nodeid"]) ?? toStringOrUndefined(record["id"]);
+      const parentId = toStringOrUndefined(record["parent"]);
+      if (childId && parentId) {
+        edges.push({ id: `e_${parentId}_${childId}`, source: parentId, target: childId });
+      }
     });
   }
+
   return { nodes, edges };
 }
 
-function naiveParseToml(text: string): any {
+function naiveParseToml(text: string): ParsedToml {
   const lines = text.split(/\r?\n/);
-  const out: any = { nodes: [], edges: [] };
-  let cur: any | null = null;
+  const out: ParsedToml = { nodes: [], edges: [] };
+  let cur: Record<string, unknown> | null = null;
   let section: "nodes" | "edges" | "board" | null = null;
   for (const raw of lines) {
     const line = raw.trim();
@@ -248,17 +329,20 @@ function naiveParseToml(text: string): any {
       section = "board";
       continue;
     }
-    const m = line.match(/^(\w+)\s*=\s*(.+)$/);
-    if (!m) continue;
-    const key = m[1];
-    let value: any = m[2];
-    if (value.startsWith('"') && value.endsWith('"')) {
-      value = value.slice(1, -1).replace(/\\"/g, '"');
-    } else if (/^[-\d.]+$/.test(value)) {
-      value = Number(value);
+    const match = line.match(/^(\w+)\s*=\s*(.+)$/);
+    if (!match) continue;
+    const key = match[1];
+    const rawValue = match[2];
+    let value: string | number;
+    if (rawValue.startsWith('"') && rawValue.endsWith('"')) {
+      value = rawValue.slice(1, -1).replace(/\\"/g, '"');
+    } else if (/^[-\d.]+$/.test(rawValue)) {
+      value = Number(rawValue);
+    } else {
+      value = rawValue;
     }
-    if (section === "nodes" || section === "edges" || section === "board") {
-      cur![key] = value;
+    if ((section === "nodes" || section === "edges" || section === "board") && cur) {
+      cur[key] = value;
     }
   }
   return out;
