@@ -64,6 +64,12 @@ body {
   .text-danger {
     color: var(--color-danger-text) !important;
   }
+  .text-error {
+    color: var(--color-danger-text) !important;
+  }
+  .text-success {
+    color: #10b981 !important;
+  }
 
   /* 背景色 */
   .bg-background {
@@ -90,6 +96,9 @@ body {
   .bg-surface-overlay {
     background-color: var(--surface-overlay) !important;
   }
+  .bg-surface-overlay-strong {
+    background-color: var(--surface-overlay-strong) !important;
+  }
   .bg-surface-hover {
     background-color: var(--surface-hover) !important;
   }
@@ -101,6 +110,24 @@ body {
   }
   .bg-surface-danger {
     background-color: var(--surface-danger) !important;
+  }
+  .bg-success {
+    background-color: #10b981 !important;
+  }
+  .bg-error {
+    background-color: var(--color-danger-text) !important;
+  }
+  .bg-accent {
+    background-color: var(--accent-solid) !important;
+  }
+  .bg-highlight {
+    background-color: var(--color-highlight) !important;
+  }
+  .bg-highlight-hover {
+    background-color: var(--color-button-hover) !important;
+  }
+  .bg-surface-input {
+    background-color: var(--surface-panel) !important;
   }
 
   /* ボーダー色 */
@@ -118,6 +145,15 @@ body {
   }
   .border-danger {
     border-color: var(--border-danger) !important;
+  }
+  .border-success {
+    border-color: #10b981 !important;
+  }
+  .border-error {
+    border-color: var(--color-danger-text) !important;
+  }
+  .border-overlay {
+    border-color: var(--border-overlay) !important;
   }
 
   /* アクセント色 */
@@ -143,6 +179,15 @@ body {
   }
   .hover\:border-highlight:hover {
     border-color: var(--color-highlight) !important;
+  }
+  .hover\:bg-highlight-hover:hover {
+    background-color: var(--color-button-hover) !important;
+  }
+  .hover\:border-accent:hover {
+    border-color: var(--border-accent) !important;
+  }
+  .hover\:bg-success\/90:hover {
+    background-color: rgba(16, 185, 129, 0.9) !important;
   }
 
   /* フォーカス状態 */

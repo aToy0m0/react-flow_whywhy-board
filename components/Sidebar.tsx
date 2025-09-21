@@ -22,7 +22,7 @@ export default function Sidebar({ isOpen, onClose, boardRef, fileRef }: SidebarP
   return (
     <>
       {/* サイドパネル */}
-      <div className={`fixed left-0 top-0 h-full bg-white/95 backdrop-blur-xl shadow-2xl transition-transform duration-300 ease-in-out z-30 ${
+      <div className={`fixed left-0 top-0 h-full bg-white/95 backdrop-blur-xl shadow-2xl transition-transform duration-300 ease-in-out z-30 flex flex-col ${
         isOpen ? 'translate-x-0' : '-translate-x-full'
       }`} style={{ width: '280px' }}>
         
@@ -36,7 +36,7 @@ export default function Sidebar({ isOpen, onClose, boardRef, fileRef }: SidebarP
           </button>
         </div>
 
-        <div className="p-6 space-y-6">
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
           <div className="space-y-3">
             <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">保存・読み込み</h3>
             

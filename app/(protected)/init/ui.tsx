@@ -40,24 +40,24 @@ export default function InitClient({ email }: Props) {
   };
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
+    <main className="min-h-screen bg-background text-paragraph">
       <div className="mx-auto w-full max-w-3xl px-6 py-16 space-y-8">
         <header className="space-y-2">
-          <p className="text-sm uppercase tracking-[0.4em] text-slate-400">Initialization</p>
-          <h1 className="text-3xl font-semibold text-white">スーパー管理者の初期化</h1>
-          <p className="text-slate-300">
+          <p className="text-sm uppercase tracking-[0.4em] text-subtle">Initialization</p>
+          <h1 className="text-3xl font-semibold text-headline">スーパー管理者の初期化</h1>
+          <p className="text-muted">
             現在ログインしているユーザー: {email ?? "不明"}
           </p>
         </header>
 
-        <section className="rounded-3xl bg-white/5 p-6 shadow-xl backdrop-blur space-y-4">
-          <p className="text-sm text-slate-200">
+        <section className="rounded-3xl bg-surface-card p-6 shadow-xl backdrop-blur space-y-4">
+          <p className="text-sm text-paragraph">
             `.env` の `SUPERADMIN_EMAIL` / `SUPERADMIN_PASSWORD` を使用してユーザーを upsert します。既存ユーザーが存在する場合はパスワードを上書きします。
           </p>
           <button
             type="button"
             onClick={handleInit}
-            className="rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-400 disabled:bg-slate-600"
+            className="rounded-lg bg-highlight px-4 py-2 text-sm font-semibold text-headline transition hover:bg-highlight/80 disabled:bg-subtle"
             disabled={status === "pending"}
           >
             {status === "pending" ? "呼び出し中..." : "/api/init を実行"}
@@ -66,17 +66,17 @@ export default function InitClient({ email }: Props) {
             <div
               className={`rounded-lg border px-4 py-3 text-sm ${
                 status === "fulfilled"
-                  ? "border-emerald-400 text-emerald-200"
+                  ? "border-success text-success"
                   : status === "rejected"
-                  ? "border-rose-400 text-rose-200"
-                  : "border-sky-400 text-sky-200"
+                  ? "border-error text-error"
+                  : "border-accent text-accent-soft"
               }`}
             >
               {message}
             </div>
           )}
           {response && (
-            <pre className="whitespace-pre-wrap rounded-lg bg-black/40 px-4 py-3 text-xs text-slate-200">
+            <pre className="whitespace-pre-wrap rounded-lg bg-black/40 px-4 py-3 text-xs text-paragraph">
               {JSON.stringify(response, null, 2)}
             </pre>
           )}

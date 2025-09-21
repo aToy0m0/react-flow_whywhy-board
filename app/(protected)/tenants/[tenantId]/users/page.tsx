@@ -24,7 +24,10 @@ export default async function TenantUsersPage({ params }: Props) {
   }
 
   const users = await prisma.user.findMany({
-    where: { tenantId },
+    where: {
+      tenantId,
+      role: { not: "SUPER_ADMIN" } // SUPER_ADMINを除外
+    },
     orderBy: { createdAt: "asc" },
     select: {
       id: true,
@@ -35,24 +38,24 @@ export default async function TenantUsersPage({ params }: Props) {
   });
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
+    <main className="min-h-screen bg-background text-paragraph">
       <div className="mx-auto w-full max-w-5xl px-6 py-16 space-y-6">
         <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="text-sm uppercase tracking-[0.4em] text-slate-400">Users</p>
-            <h1 className="text-3xl font-semibold text-white">{tenantId} のユーザー</h1>
+            <p className="text-sm uppercase tracking-[0.4em] text-subtle">Users</p>
+            <h1 className="text-3xl font-semibold text-headline">{tenantId} のユーザー</h1>
           </div>
           <Link
             href={`/tenants/${tenantId}/users/new`}
-            className="inline-flex rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-400"
+            className="inline-flex rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-background transition hover:bg-accent/90"
           >
-            ユーザー招待（準備中）
+            新規ユーザー作成
           </Link>
         </header>
 
         {users.length === 0 ? (
-          <p className="rounded-3xl bg-white/5 p-6 text-sm text-slate-300">
-            ユーザーが登録されていません。招待を送信してください。
+          <p className="rounded-3xl bg-surface-card p-6 text-sm text-muted">
+            ユーザーが登録されていません。新規ユーザーを作成してください。
           </p>
         ) : (
           <div className="space-y-3">
@@ -60,13 +63,13 @@ export default async function TenantUsersPage({ params }: Props) {
               <Link
                 key={member.id}
                 href={`/tenants/${tenantId}/users/${member.id}`}
-                className="flex items-center justify-between rounded-3xl border border-white/10 bg-white/5 px-6 py-4 transition hover:border-white/30"
+                className="flex items-center justify-between rounded-3xl border border-soft bg-surface-card px-6 py-4 transition hover:border-accent"
               >
                 <div>
-                  <p className="text-sm font-semibold text-white">{member.email}</p>
-                  <p className="text-xs text-slate-300">ロール: {member.role}</p>
+                  <p className="text-sm font-semibold text-headline">{member.email}</p>
+                  <p className="text-xs text-muted">ロール: {member.role}</p>
                 </div>
-                <span className="text-xs text-slate-400">作成日: {member.createdAt.toLocaleDateString()}</span>
+                <span className="text-xs text-subtle">作成日: {member.createdAt.toLocaleDateString()}</span>
               </Link>
             ))}
           </div>

@@ -124,10 +124,10 @@ export default function SetupPage() {
             <div
               className={`rounded-lg border px-4 py-3 text-sm ${
                 status === "fulfilled"
-                  ? "border-emerald-400 text-emerald-200"
+                  ? "border-success text-success"
                   : status === "rejected"
-                  ? "border-rose-400 text-rose-200"
-                  : "border-sky-400 text-sky-200"
+                  ? "border-error text-error"
+                  : "border-accent text-accent"
               }`}
             >
               {message || (status === "pending" ? "API を呼び出しています..." : "完了しました")}

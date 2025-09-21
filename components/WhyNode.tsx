@@ -6,23 +6,23 @@ import clsx from "clsx";
 import type { NodeType, WhyNodeData } from "./boardTypes";
 
 const colors: Record<NodeType, { border: string; bg: string }> = {
-  root: { border: "border-error", bg: "bg-error/10" },
-  why: { border: "border-soft", bg: "bg-surface-card" },
-  cause: { border: "border-success", bg: "bg-success/10" },
-  action: { border: "border-highlight", bg: "bg-highlight/10" },
+  root: { border: "border-red-500", bg: "bg-red-50" },
+  why: { border: "border-gray-500", bg: "bg-gray-50" },
+  cause: { border: "border-green-600", bg: "bg-green-50" },
+  action: { border: "border-blue-600", bg: "bg-blue-50" },
 };
 
 function Header({ type, index }: { type: NodeType; index?: number; adopted?: boolean }) {
-  if (type === "root") return <div className="text-sm font-semibold">問題</div>;
+  if (type === "root") return <div className="text-sm font-semibold text-black">問題</div>;
   if (type === "cause") {
     // return <div className="text-sm font-semibold">原因｜{parentLabel ?? ""} はなぜか</div>;
-    return <div className="text-sm font-semibold">原因</div>;
+    return <div className="text-sm font-semibold text-black">原因</div>;
   }
   if (type === "action") {
-    return <div className="text-sm font-semibold">対策</div>;
+    return <div className="text-sm font-semibold text-black">対策</div>;
   }
   return (
-    <div className="text-sm font-semibold flex items-center gap-2">
+    <div className="text-sm font-semibold flex items-center gap-2 text-black">
       {/* <span>なぜ{index ?? 0}｜親ノードはなぜか</span> */}
       <span>なぜ{index ?? 0}</span>
     </div>

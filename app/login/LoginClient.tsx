@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import type { Route } from "next";
 import { signIn, signOut } from "next-auth/react";
 
@@ -15,18 +14,15 @@ export default function LoginClient({ callbackUrl = "/" }: Props) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
-  const [message, setMessage] = useState<string>("");
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!email || !password) {
       setStatus("error");
-      setMessage("ユーザー名とパスワードを入力してください。");
       return;
     }
 
     setStatus("loading");
-    setMessage("認証を確認しています...");
 
     const result = await signIn("credentials", {
       email,
@@ -37,20 +33,17 @@ export default function LoginClient({ callbackUrl = "/" }: Props) {
 
     if (result?.ok) {
       setStatus("success");
-      setMessage("認証に成功しました。ダッシュボードへ移動します。");
       const target = (result.url ?? callbackUrl) as Route;
       router.replace(target);
       router.refresh();
     } else {
       setStatus("error");
-      setMessage("認証に失敗しました。ユーザー名とパスワードを確認してください。");
     }
   };
 
   const handleSignOut = async () => {
     await signOut({ redirect: false });
     setStatus("idle");
-    setMessage("サインアウトしました。");
   };
 
   return (
@@ -106,17 +99,17 @@ export default function LoginClient({ callbackUrl = "/" }: Props) {
               </button>
             </form>
 
-            <div className="mt-6 min-h-[3rem] rounded-lg bg-surface-card-muted px-4 py-3 text-sm text-paragraph">
+            {/* <div className="mt-6 min-h-[3rem] rounded-lg bg-surface-card-muted px-4 py-3 text-sm text-paragraph">
               {status === "idle" && (
                 <p>入力したユーザーが有効であればセッションが開始されます。初期ユーザーは SuperAdmin で作成してください。</p>
               )}
               {status === "loading" && <p className="text-accent-soft">{message || "認証を確認しています..."}</p>}
               {status === "success" && <p className="text-success">{message}</p>}
               {status === "error" && <p className="text-error">{message}</p>}
-            </div>
+            </div> */}
           </div>
 
-          <aside className="flex-1 space-y-6 rounded-2xl bg-surface-card p-8 shadow-lg backdrop-blur">
+          {/* <aside className="flex-1 space-y-6 rounded-2xl bg-surface-card p-8 shadow-lg backdrop-blur">
             <h2 className="text-xl font-semibold text-headline">ログインに関するヒント</h2>
             <ul className="space-y-4 text-sm text-paragraph">
               <li>
@@ -159,7 +152,7 @@ export default function LoginClient({ callbackUrl = "/" }: Props) {
                 </Link>
               </div>
             </div>
-          </aside>
+          </aside> */}
         </section>
       </div>
     </main>

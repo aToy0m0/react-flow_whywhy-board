@@ -31,6 +31,9 @@
       ],
       "@/hooks/*": [
         "hooks/*"
+      ],
+      "@/types/*": [
+        "types/*"
       ]
     },
     "incremental": true

@@ -7,6 +7,7 @@ import { type TenantThemeKey, DEFAULT_TENANT_THEME_KEY } from '@/lib/tenantTheme
 
 interface TenantInfo {
   tenantId: string;
+  tenantName: string;
   boardCount: number;
   userCount: number;
   recentBoards: Array<{
@@ -31,7 +32,7 @@ export function TenantDashboard({ tenantInfo, userInfo }: TenantDashboardProps) 
   const [currentTheme, setCurrentTheme] = useState<TenantThemeKey>(DEFAULT_TENANT_THEME_KEY);
   const [loadingTheme, setLoadingTheme] = useState(true);
 
-  const { tenantId, boardCount, userCount, recentBoards } = tenantInfo;
+  const { tenantId, tenantName, boardCount, userCount, recentBoards } = tenantInfo;
 
   // テーマ変更権限チェック
   const canChangeTheme = userInfo.role === 'SUPER_ADMIN' ||
@@ -78,7 +79,7 @@ export function TenantDashboard({ tenantInfo, userInfo }: TenantDashboardProps) 
     <div className="mx-auto w-full max-w-5xl px-6 py-16 space-y-8">
       <header className="space-y-2">
         <p className="text-sm uppercase tracking-[0.4em] text-subtle">Tenant Dashboard</p>
-        <h1 className="text-3xl font-semibold text-headline">{tenantId} のダッシュボード</h1>
+        <h1 className="text-3xl font-semibold text-headline">{tenantName} のダッシュボード</h1>
         <p className="text-muted">ボード数とユーザー数の概要、最近更新されたボードを確認できます。</p>
       </header>
 
@@ -87,7 +88,7 @@ export function TenantDashboard({ tenantInfo, userInfo }: TenantDashboardProps) 
           <p className="text-sm uppercase text-subtle">Boards</p>
           <p className="mt-2 text-4xl font-bold text-headline">{boardCount}</p>
           <p className="mt-1 text-sm text-muted">登録されているボード</p>
-          <Link href={`/tenants/${tenantId}/boards`} className="mt-4 inline-block text-sm text-accent-soft hover:text-accent-soft-hover">
+          <Link href={`/tenants/${tenantId}/boards`} className="mt-4 inline-block text-sm text-accent hover:text-accent-hover">
             ボード一覧へ
           </Link>
         </div>
@@ -95,7 +96,7 @@ export function TenantDashboard({ tenantInfo, userInfo }: TenantDashboardProps) 
           <p className="text-sm uppercase text-subtle">Members</p>
           <p className="mt-2 text-4xl font-bold text-headline">{userCount}</p>
           <p className="mt-1 text-sm text-muted">テナント内のユーザー数</p>
-          <Link href={`/tenants/${tenantId}/users`} className="mt-4 inline-block text-sm text-accent-soft hover:text-accent-soft-hover">
+          <Link href={`/tenants/${tenantId}/users`} className="mt-4 inline-block text-sm text-accent hover:text-accent-hover">
             ユーザー管理へ
           </Link>
         </div>
@@ -104,7 +105,7 @@ export function TenantDashboard({ tenantInfo, userInfo }: TenantDashboardProps) 
       <section className="rounded-3xl bg-surface-card p-6 shadow-xl backdrop-blur space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-headline">最近更新されたボード</h2>
-          <Link href={`/tenants/${tenantId}/boards`} className="text-sm text-accent-soft hover:text-accent-soft-hover">
+          <Link href={`/tenants/${tenantId}/boards`} className="text-sm text-accent hover:text-accent-hover">
             すべて表示
           </Link>
         </div>

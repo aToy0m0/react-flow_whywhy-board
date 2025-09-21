@@ -43,12 +43,12 @@ export default async function DashboardPage() {
     : [];
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
+    <main className="min-h-screen bg-background text-paragraph">
       <div className="mx-auto w-full max-w-6xl px-6 pb-16 pt-12 space-y-8">
         <header className="space-y-2">
-          <p className="text-sm uppercase tracking-[0.4em] text-slate-400">WhyWhy Board</p>
-          <h1 className="text-3xl font-semibold text-white">ダッシュボード</h1>
-          <p className="text-slate-300">
+          <p className="text-sm uppercase tracking-[0.4em] text-subtle">WhyWhy Board</p>
+          <h1 className="text-3xl font-semibold text-headline">ダッシュボード</h1>
+          <p className="text-muted">
             {tenantId
               ? `${tenantId} テナントの状況を確認できます。`
               : "テナントがまだ割り当てられていません。セットアップを完了してください。"}
@@ -56,14 +56,14 @@ export default async function DashboardPage() {
           <div className="flex flex-wrap gap-3">
             <Link
               href="/setup"
-              className="rounded-lg bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/20"
+              className="rounded-lg bg-surface-card px-4 py-2 text-sm font-medium text-paragraph transition hover:bg-surface-hover"
             >
               セットアップガイド
             </Link>
             {tenantId && (
               <Link
                 href={`/tenants/${tenantId}/boards`}
-                className="rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-400"
+                className="rounded-lg bg-highlight px-4 py-2 text-sm font-semibold text-background transition hover:bg-highlight-hover"
               >
                 ボードを開く
               </Link>
@@ -71,7 +71,7 @@ export default async function DashboardPage() {
             {isSuperAdmin && (
               <Link
                 href="/manage"
-                className="rounded-lg border border-white/30 px-4 py-2 text-sm font-medium text-white transition hover:border-white/60"
+                className="rounded-lg border border-soft px-4 py-2 text-sm font-medium text-paragraph transition hover:border-accent"
               >
                 テナント管理
               </Link>
@@ -80,57 +80,57 @@ export default async function DashboardPage() {
         </header>
 
         <section className="grid gap-6 md:grid-cols-2">
-          <div className="rounded-3xl bg-white/5 p-6 shadow-xl backdrop-blur">
+          <div className="rounded-3xl bg-surface-card p-6 shadow-xl backdrop-blur">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-white">最近のボード</h2>
+              <h2 className="text-lg font-semibold text-headline">最近のボード</h2>
               {tenantId && (
                 <Link
                   href={`/tenants/${tenantId}/boards`}
-                  className="text-sm text-sky-300 hover:text-sky-200"
+                  className="text-sm text-accent-solid hover:text-accent-solid-hover"
                 >
                   すべて見る
                 </Link>
               )}
             </div>
             <div className="mt-4 space-y-3">
-              {!tenantId && <p className="text-sm text-slate-300">テナントが未設定です。</p>}
+              {!tenantId && <p className="text-sm text-muted">テナントが未設定です。</p>}
               {tenantId && boards.length === 0 && (
-                <p className="text-sm text-slate-300">ボードがまだありません。新規作成してください。</p>
+                <p className="text-sm text-muted">ボードがまだありません。新規作成してください。</p>
               )}
               {boards.map((board) => (
                 <Link
                   key={board.id}
                   href={`/tenants/${tenantId}/boards/${board.boardKey}`}
-                  className="block rounded-xl border border-white/10 bg-white/5 px-4 py-3 transition hover:border-white/30"
+                  className="block rounded-xl border border-soft bg-surface-card-muted px-4 py-3 transition hover:border-accent"
                 >
-                  <p className="text-sm font-semibold text-white">{board.name}</p>
-                  <p className="text-xs text-slate-300">最終更新: {board.updatedAt.toLocaleString()}</p>
+                  <p className="text-sm font-semibold text-headline">{board.name}</p>
+                  <p className="text-xs text-muted">最終更新: {board.updatedAt.toLocaleString()}</p>
                 </Link>
               ))}
             </div>
           </div>
 
-          <div className="rounded-3xl bg-white/5 p-6 shadow-xl backdrop-blur">
+          <div className="rounded-3xl bg-surface-card p-6 shadow-xl backdrop-blur">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-white">ユーザー招待状況</h2>
+              <h2 className="text-lg font-semibold text-headline">ユーザー招待状況</h2>
               {tenantId && (
                 <Link
                   href={`/tenants/${tenantId}/users`}
-                  className="text-sm text-sky-300 hover:text-sky-200"
+                  className="text-sm text-accent-solid hover:text-accent-solid-hover"
                 >
                   管理ページへ
                 </Link>
               )}
             </div>
             <div className="mt-4 space-y-3">
-              {!tenantId && <p className="text-sm text-slate-300">テナントが未設定です。</p>}
+              {!tenantId && <p className="text-sm text-muted">テナントが未設定です。</p>}
               {tenantId && users.length === 0 && (
-                <p className="text-sm text-slate-300">ユーザーがまだ登録されていません。招待を送りましょう。</p>
+                <p className="text-sm text-muted">ユーザーがまだ登録されていません。招待を送りましょう。</p>
               )}
               {users.map((member) => (
-                <div key={member.id} className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
-                  <p className="text-sm font-semibold text-white">{member.email}</p>
-                  <p className="text-xs text-slate-300">ロール: {member.role}</p>
+                <div key={member.id} className="rounded-xl border border-soft bg-surface-card-muted px-4 py-3">
+                  <p className="text-sm font-semibold text-headline">{member.email}</p>
+                  <p className="text-xs text-muted">ロール: {member.role}</p>
                 </div>
               ))}
             </div>

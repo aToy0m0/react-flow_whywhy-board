@@ -191,7 +191,7 @@ export default function ManageTenantsClient({ initialTenants }: Props) {
 
   return (
     <div className="space-y-10">
-      <section className="rounded-3xl border border-[rgba(18,22,41,0.35)] bg-[rgba(255,255,255,0.06)] p-6 shadow-xl backdrop-blur">
+      <section className="rounded-3xl border border-subtle bg-surface-overlay p-6 shadow-xl backdrop-blur">
         <h2 className="text-xl font-semibold text-headline">テナントを追加</h2>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
@@ -200,7 +200,7 @@ export default function ManageTenantsClient({ initialTenants }: Props) {
               type="text"
               value={form.slug}
               onChange={(event) => { const value = event.currentTarget.value; setForm((prev) => ({ ...prev, slug: value })); }}
-              className="w-full rounded-[8px] border border-[rgba(18,22,41,0.35)] bg-[rgba(18,22,41,0.75)] px-3 py-2 text-sm text-headline focus:border-highlight focus:outline-none"
+              className="w-full rounded-[8px] border border-subtle bg-background px-3 py-2 text-sm text-headline focus:border-highlight focus:outline-none"
               placeholder="例: factory-a"
             />
           </div>
@@ -210,7 +210,7 @@ export default function ManageTenantsClient({ initialTenants }: Props) {
               type="text"
               value={form.name}
               onChange={(event) => { const value = event.currentTarget.value; setForm((prev) => ({ ...prev, name: value })); }}
-              className="w-full rounded-[8px] border border-[rgba(18,22,41,0.35)] bg-[rgba(18,22,41,0.75)] px-3 py-2 text-sm text-headline focus:border-highlight focus:outline-none"
+              className="w-full rounded-[8px] border border-subtle bg-background px-3 py-2 text-sm text-headline focus:border-highlight focus:outline-none"
               placeholder="例: 工場A"
             />
           </div>
@@ -218,7 +218,7 @@ export default function ManageTenantsClient({ initialTenants }: Props) {
         <button
           type="button"
           onClick={handleCreateTenant}
-          className="mt-4 inline-flex items-center rounded-[8px] bg-button px-4 py-2 text-sm font-semibold text-button-text transition hover:bg-[var(--color-button-hover)] disabled:cursor-not-allowed disabled:opacity-60"
+          className="mt-4 inline-flex items-center rounded-[8px] bg-button px-4 py-2 text-sm font-semibold text-button-text transition hover:bg-button-hover disabled:cursor-not-allowed disabled:opacity-60"
           disabled={creating}
         >
           {creating ? '作成中...' : 'テナントを作成'}
@@ -235,7 +235,7 @@ export default function ManageTenantsClient({ initialTenants }: Props) {
           {tenants.map((tenant) => (
             <article
               key={tenant.id}
-              className="rounded-3xl border border-[rgba(18,22,41,0.35)] bg-[rgba(255,255,255,0.06)] p-6 shadow-lg backdrop-blur"
+              className="rounded-3xl border border-subtle bg-surface-overlay p-6 shadow-lg backdrop-blur"
             >
               <header className="flex items-start justify-between gap-3">
                 <div>
@@ -246,14 +246,14 @@ export default function ManageTenantsClient({ initialTenants }: Props) {
                   <button
                     type="button"
                     onClick={() => handleRenameTenant(tenant.id, tenant.name)}
-                    className="rounded-md border border-[rgba(238,187,195,0.55)] px-2 py-1 text-xs text-headline transition hover:border-highlight hover:bg-[rgba(238,187,195,0.12)]"
+                    className="rounded-md border text-button-text bg-button px-2 py-1 text-xs text-headline transition hover:bg-button-hover disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     名前を変更
                   </button>
                   <button
                     type="button"
                     onClick={() => handleDeleteTenant(tenant.id, tenant.name)}
-                    className="rounded-md border border-[rgba(238,68,90,0.6)] px-2 py-1 text-xs text-[rgba(238,187,195,0.95)] transition hover:bg-[rgba(238,68,90,0.12)]"
+                    className="rounded-md border border-danger px-2 py-1 text-xs text-danger transition hover:bg-surface-tertiary"
                   >
                     テナント削除
                   </button>
@@ -266,7 +266,7 @@ export default function ManageTenantsClient({ initialTenants }: Props) {
                   <button
                     type="button"
                     onClick={() => handleCreateAdmin(tenant.id)}
-                    className="rounded-md bg-button px-2 py-1 text-xs font-semibold text-button-text transition hover:bg-[var(--color-button-hover)]"
+                    className="rounded-md bg-button px-2 py-1 text-xs font-semibold text-button-text transition hover:bg-button-hover"
                   >
                     追加
                   </button>
@@ -274,14 +274,14 @@ export default function ManageTenantsClient({ initialTenants }: Props) {
 
                 <ul className="space-y-2">
                   {tenant.admins.length === 0 && (
-                    <li className="rounded-lg border border-[rgba(18,22,41,0.35)] bg-[rgba(18,22,41,0.55)] px-3 py-2 text-xs text-paragraph">
+                    <li className="rounded-lg border border-subtle bg-background px-3 py-2 text-xs text-paragraph">
                       管理者が登録されていません。
                     </li>
                   )}
                   {tenant.admins.map((admin) => (
                     <li
                       key={admin.id}
-                      className="rounded-lg border border-[rgba(18,22,41,0.35)] bg-[rgba(18,22,41,0.55)] px-3 py-2 text-sm text-headline"
+                      className="rounded-lg border border-subtle bg-background px-3 py-2 text-sm text-headline"
                     >
                       <div className="flex items-center justify-between gap-3">
                         <div>
@@ -294,21 +294,21 @@ export default function ManageTenantsClient({ initialTenants }: Props) {
                           <button
                             type="button"
                             onClick={() => handleUpdateAdmin(tenant.id, admin, 'email')}
-                            className="rounded-md border border-[rgba(238,187,195,0.35)] px-2 py-1 text-paragraph transition hover:border-[rgba(238,187,195,0.5)] hover:bg-[rgba(238,187,195,0.1)]"
+                            className="rounded-md border text-button-text bg-button px-2 py-1 text-xs text-headline transition hover:bg-button-hover disabled:cursor-not-allowed disabled:opacity-60"
                           >
                             メール変更
                           </button>
                           <button
                             type="button"
                             onClick={() => handleUpdateAdmin(tenant.id, admin, 'password')}
-                            className="rounded-md border border-[rgba(238,187,195,0.35)] px-2 py-1 text-paragraph transition hover:border-[rgba(238,187,195,0.5)] hover:bg-[rgba(238,187,195,0.1)]"
+                            className="rounded-md border text-button-text bg-button px-2 py-1 text-xs text-headline transition hover:bg-button-hover disabled:cursor-not-allowed disabled:opacity-60"
                           >
                             パスワード変更
                           </button>
                           <button
                             type="button"
                             onClick={() => handleDeleteAdmin(tenant.id, admin.id)}
-                            className="rounded-md border border-[rgba(238,68,90,0.6)] px-2 py-1 text-[rgba(238,187,195,0.95)] transition hover:bg-[rgba(238,68,90,0.12)]"
+                            className="rounded-md border border-danger px-2 py-1 text-xs text-danger transition hover:bg-surface-tertiary"
                           >
                             削除
                           </button>

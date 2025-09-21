@@ -6,20 +6,20 @@ export default function TenantUserManagePage({ params }: TenantUserManagePagePro
   const { tenantId, userId } = params;
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
+    <main className="min-h-screen bg-background text-paragraph">
       <div className="mx-auto w-full max-w-4xl px-6 py-16">
         <h1 className="text-3xl font-bold">ユーザー詳細</h1>
-        <dl className="mt-6 space-y-2 text-slate-300">
+        <dl className="mt-6 space-y-2 text-muted">
           <div>
-            <dt className="text-sm uppercase tracking-widest text-slate-500">テナント</dt>
-            <dd className="text-lg text-white">{tenantId}</dd>
+            <dt className="text-sm uppercase tracking-widest text-subtle">テナント</dt>
+            <dd className="text-lg text-headline">{tenantId}</dd>
           </div>
           <div>
-            <dt className="text-sm uppercase tracking-widest text-slate-500">ユーザーID</dt>
-            <dd className="text-lg text-white">{userId}</dd>
+            <dt className="text-sm uppercase tracking-widest text-subtle">ユーザーID</dt>
+            <dd className="text-lg text-headline">{userId}</dd>
           </div>
         </dl>
-        <p className="mt-6 text-slate-400">
+        <p className="mt-6 text-subtle">
           この画面にユーザーごとの権限設定や履歴を表示する機能を追加してください。
         </p>
       </div>

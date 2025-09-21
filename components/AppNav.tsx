@@ -5,13 +5,10 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
 import type { Route } from "next";
+import { Home, LayoutDashboard, FileText, Users, Settings, RefreshCw, FileQuestion, LogIn } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import WhyBoardIcon from "@/components/WhyBoardIcon";
-
-interface SessionInfo {
-  email: string;
-  role: string;
-  tenantId?: string | null;
-}
+import { SessionInfo } from "@/types/session";
 
 interface AppNavProps {
   session: SessionInfo | null;
@@ -25,49 +22,62 @@ export default function AppNav({ session }: AppNavProps) {
   const tenantId = session?.tenantId ?? undefined;
   const isSuperAdmin = session?.role === 'SUPER_ADMIN';
 
-  type LinkItem = { href: string; label: string; hidden?: boolean };
+  type LinkItem = { href: string; label: string; icon: LucideIcon; hidden?: boolean };
 
   const links: LinkItem[] = isAuthenticated
     ? [
-        { href: '/', label: 'ダッシュボード' },
-        tenantId ? { href: `/tenants/${tenantId}/dashboard`, label: 'テナント' } : null,
-        tenantId ? { href: `/tenants/${tenantId}/boards`, label: 'ボード' } : null,
-        tenantId ? { href: `/tenants/${tenantId}/users`, label: 'ユーザー' } : null,
-        isSuperAdmin ? { href: '/manage', label: 'テナント管理' } : null,
-        isSuperAdmin ? { href: '/init', label: '初期化' } : null,
-        { href: '/setup', label: 'セットアップ', hidden: !isSuperAdmin },
-        { href: '/docs', label: 'ドキュメント' },
+        { href: '/', label: 'ダッシュボード', icon: Home },
+        tenantId ? { href: `/tenants/${tenantId}/dashboard`, label: 'テナント', icon: LayoutDashboard } : null,
+        tenantId ? { href: `/tenants/${tenantId}/boards`, label: 'ボード', icon: FileText } : null,
+        tenantId ? { href: `/tenants/${tenantId}/users`, label: 'ユーザー', icon: Users } : null,
+        isSuperAdmin ? { href: '/manage', label: 'テナント管理', icon: Settings } : null,
+        isSuperAdmin ? { href: '/init', label: '初期化', icon: RefreshCw } : null,
+        { href: '/setup', label: 'セットアップ', icon: Settings, hidden: !isSuperAdmin },
+        { href: '/docs', label: 'ドキュメント', icon: FileQuestion },
       ].filter((link): link is LinkItem => Boolean(link))
     : [
-        { href: '/login', label: 'ログイン' },
-        { href: '/setup', label: 'セットアップ' },
-        { href: '/docs', label: 'ドキュメント' },
+        { href: '/login', label: 'ログイン', icon: LogIn },
+        { href: '/setup', label: 'セットアップ', icon: Settings },
+        { href: '/docs', label: 'ドキュメント', icon: FileQuestion },
       ];
 
   return (
-    <header className="fixed inset-x-0 top-0 z-40 border-b border-[rgba(18,22,41,0.45)] bg-[rgba(18,22,41,0.85)] backdrop-blur">
+    <header className="fixed inset-x-0 top-0 z-40 border-b border-overlay bg-surface-overlay backdrop-blur">
       <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-4 text-sm text-paragraph">
         <div className="flex items-center gap-6">
           <Link href="/" className="flex items-center gap-2 text-base font-semibold text-headline">
             <WhyBoardIcon size={28} />
             <span>WhyWhy Board</span>
           </Link>
-          <nav className="hidden gap-2 md:flex">
+          <nav className="hidden gap-1 md:flex">
             {links
               .filter((link) => !link.hidden)
               .map((link) => {
                 const isActive = pathname === link.href || (link.href !== '/' && pathname.startsWith(link.href));
+                const Icon = link.icon;
                 return (
                   <Link
                     key={link.href}
                     href={link.href as Route}
-                    className={`rounded-md px-3 py-1 text-sm transition ${
+                    className={`flex flex-col items-center px-3 py-2 rounded-xl transition-colors group ${
                       isActive
-                        ? 'bg-[rgba(238,187,195,0.18)] text-headline border border-[rgba(238,187,195,0.4)]'
-                        : 'text-paragraph hover:text-headline hover:bg-[rgba(238,187,195,0.1)]'
+                        ? 'bg-accent text-background'
+                        : 'text-paragraph hover:text-accent hover:bg-surface-hover'
                     }`}
+                    title={link.label}
                   >
-                    {link.label}
+                    <Icon size={16} className={`transition-colors mb-1 ${
+                      isActive
+                        ? 'text-background'
+                        : 'text-paragraph group-hover:text-accent'
+                    }`} />
+                    <span className={`text-xs transition-colors ${
+                      isActive
+                        ? 'text-background'
+                        : 'text-paragraph group-hover:text-accent'
+                    }`}>
+                      {link.label}
+                    </span>
                   </Link>
                 );
               })}
@@ -76,7 +86,7 @@ export default function AppNav({ session }: AppNavProps) {
         <div className="flex items-center gap-3">
           {session ? (
             <>
-              <span className="hidden text-xs text-paragraph md:inline">{session.email} ({session.role})</span>
+              <span className="hidden text-xs text-muted md:inline">{session.email} ({session.role})</span>
               <button
                 type="button"
                 onClick={async () => {
@@ -91,7 +101,7 @@ export default function AppNav({ session }: AppNavProps) {
                     setSigningOut(false);
                   }
                 }}
-                className="rounded-lg border border-[rgba(238,187,195,0.45)] px-3 py-1 text-xs font-medium text-headline transition hover:border-highlight hover:bg-[rgba(238,187,195,0.12)] disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-lg border border-soft px-3 py-1 text-xs font-medium text-paragraph transition hover:border-accent hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-60"
                 disabled={signingOut}
               >
                 {signingOut ? 'ログアウト中...' : 'ログアウト'}
@@ -100,7 +110,7 @@ export default function AppNav({ session }: AppNavProps) {
           ) : (
             <Link
               href="/login"
-              className="rounded-lg border border-[rgba(238,187,195,0.45)] px-3 py-1 text-xs font-medium text-headline transition hover:border-highlight hover:bg-[rgba(238,187,195,0.12)]"
+              className="rounded-lg border border-soft px-3 py-1 text-xs font-medium text-paragraph transition hover:border-accent hover:bg-surface-hover"
             >
               ログイン
             </Link>

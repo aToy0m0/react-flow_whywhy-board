@@ -23,7 +23,11 @@ export default async function TenantDashboardPage({ params }: Props) {
     redirect("/");
   }
 
-  const [boardCount, userCount, recentBoards] = await Promise.all([
+  const [tenant, boardCount, userCount, recentBoards] = await Promise.all([
+    prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true }
+    }),
     prisma.board.count({ where: { tenantId } }),
     prisma.user.count({ where: { tenantId } }),
     prisma.board.findMany({
@@ -41,6 +45,7 @@ export default async function TenantDashboardPage({ params }: Props) {
 
   const tenantInfo = {
     tenantId,
+    tenantName: tenant?.name || tenantId,
     boardCount,
     userCount,
     recentBoards: recentBoards.map(board => ({

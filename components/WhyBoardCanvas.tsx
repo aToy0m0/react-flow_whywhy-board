@@ -632,6 +632,13 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
         if (!viewportElement) {
           throw new Error('React Flow viewport element not found');
         }
+
+        // デバッグ: エッジ要素の存在確認
+        const edgeElements = viewportElement.querySelectorAll('.react-flow__edge, .react-flow__edge-path, .react-flow__edges');
+        console.log(`[PNG Export Debug] Found ${edgeElements.length} edge elements:`, edgeElements);
+
+        const svgElements = viewportElement.querySelectorAll('svg');
+        console.log(`[PNG Export Debug] Found ${svgElements.length} SVG elements:`, svgElements);
         // 以下はエラーチェック無し版で、型チェックエラー
         // const dataUrl = await mod.toPng(document.querySelector('.react-flow__viewport'), {
         const styleOverrides: Partial<CSSStyleDeclaration> = {
@@ -641,11 +648,21 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
           transformOrigin: '0 0',
           color: '#111111',
         };
-        // React Flow v12 エッジ用CSS変数
+        // React Flow v12 エッジ用CSS変数（デフォルト値と実際の値両方を設定）
+        (styleOverrides as Record<string, string>)['--xy-edge-stroke-default'] = '#111111';
         (styleOverrides as Record<string, string>)['--xy-edge-stroke'] = '#111111';
+        (styleOverrides as Record<string, string>)['--xy-edge-stroke-selected-default'] = '#1d4ed8';
         (styleOverrides as Record<string, string>)['--xy-edge-stroke-selected'] = '#1d4ed8';
+        (styleOverrides as Record<string, string>)['--xy-edge-stroke-width-default'] = '2';
         (styleOverrides as Record<string, string>)['--xy-edge-stroke-width'] = '2';
+        (styleOverrides as Record<string, string>)['--xy-edge-stroke-width-selected-default'] = '3';
         (styleOverrides as Record<string, string>)['--xy-edge-stroke-width-selected'] = '3';
+
+        // コネクションライン用の変数も設定
+        (styleOverrides as Record<string, string>)['--xy-connectionline-stroke-default'] = '#111111';
+        (styleOverrides as Record<string, string>)['--xy-connectionline-stroke'] = '#111111';
+        (styleOverrides as Record<string, string>)['--xy-connectionline-stroke-width-default'] = '2';
+        (styleOverrides as Record<string, string>)['--xy-connectionline-stroke-width'] = '2';
 
         const dataUrl = await mod.toPng(viewportElement as HTMLElement, {
           backgroundColor: '#ffffff',
@@ -654,13 +671,28 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
           cacheBust: true,
           style: styleOverrides,
           filter: (node) => {
-            // エッジを確実に含める
+            // ノード関連要素を含める
+            if (node.classList?.contains('react-flow__node')) return true;
+
+            // エッジ関連要素を全て含める
             if (node.classList?.contains('react-flow__edge')) return true;
             if (node.classList?.contains('react-flow__edge-path')) return true;
-            if (node.classList?.contains('react-flow__node')) return true;
-            // 他の重要な要素も含める
-            return !node.classList?.contains('react-flow__minimap') &&
-                   !node.classList?.contains('react-flow__controls');
+            if (node.classList?.contains('react-flow__edges')) return true;
+            if (node.classList?.contains('react-flow__edge-text')) return true;
+            if (node.classList?.contains('react-flow__edge-textbg')) return true;
+            if (node.classList?.contains('react-flow__edge-textwrapper')) return true;
+            if (node.classList?.contains('react-flow__edgelabel-renderer')) return true;
+
+            // SVG要素も含める（エッジは通常SVGで描画される）
+            if (node.tagName === 'svg' || node.tagName === 'path' || node.tagName === 'marker') return true;
+
+            // 除外する要素
+            if (node.classList?.contains('react-flow__minimap')) return false;
+            if (node.classList?.contains('react-flow__controls')) return false;
+            if (node.classList?.contains('react-flow__panel')) return false;
+
+            // その他は含める
+            return true;
           },
         });
 
