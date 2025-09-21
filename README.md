@@ -37,6 +37,12 @@ npm install
 # 環境変数設定
 cp .env.example .env
 
+# NextAuth用のシークレットキー生成
+openssl rand -base64 32
+
+# .envファイルにNEXTAUTH_SECRETを設定
+# NEXTAUTH_SECRET=<生成されたキー>
+
 # データベース起動
 docker-compose up -d
 
@@ -45,6 +51,27 @@ npx prisma migrate dev
 
 # 開発サーバー起動
 npm run dev
+```
+
+### Docker本番環境
+```bash
+cd whywhybord
+
+# 環境変数設定
+cp .env.example .env
+# .envファイルを編集（DATABASE_URL、NEXTAUTH_SECRET等）
+
+# アプリケーションビルド・起動
+docker compose up -d --build
+
+# マイグレーション実行
+docker compose exec web npx prisma migrate deploy
+
+# Prismaクライアント生成（任意）
+docker compose exec web npx prisma generate
+
+# アプリケーション再起動
+docker compose restart web
 ```
 
 ### 初回セットアップ
