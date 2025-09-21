@@ -480,10 +480,6 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
     try {
       console.debug('[WhyBoard] loadRemoteFromServer:start', { endpoint: apiEndpoint });
       const headers: HeadersInit = {};
-      if (typeof window !== 'undefined') {
-        const token = localStorage.getItem('whywhy-basic');
-        if (token) headers['Authorization'] = `Basic ${token}`;
-      }
       const res = await fetch(apiEndpoint, { cache: 'no-store', credentials: 'include', headers });
       if (!res.ok) {
         console.error('[WhyBoard] Failed to load board from server', res.statusText);
@@ -561,10 +557,6 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
         });
         const graph = serializeGraph(nodes, edges);
         const headers: HeadersInit = { 'Content-Type': 'application/json' };
-        if (typeof window !== 'undefined') {
-          const token = localStorage.getItem('whywhy-basic');
-          if (token) headers['Authorization'] = `Basic ${token}`;
-        }
         const res = await fetch(apiEndpoint, {
           method: 'PUT',
           headers,
@@ -649,9 +641,11 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
           transformOrigin: '0 0',
           color: '#111111',
         };
+        // React Flow v12 エッジ用CSS変数
         (styleOverrides as Record<string, string>)['--xy-edge-stroke'] = '#111111';
         (styleOverrides as Record<string, string>)['--xy-edge-stroke-selected'] = '#1d4ed8';
-        (styleOverrides as Record<string, string>)['--xy-edge-label-background'] = '#ffffff';
+        (styleOverrides as Record<string, string>)['--xy-edge-stroke-width'] = '2';
+        (styleOverrides as Record<string, string>)['--xy-edge-stroke-width-selected'] = '3';
 
         const dataUrl = await mod.toPng(viewportElement as HTMLElement, {
           backgroundColor: '#ffffff',
@@ -659,6 +653,15 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
           height: imageHeight,
           cacheBust: true,
           style: styleOverrides,
+          filter: (node) => {
+            // エッジを確実に含める
+            if (node.classList?.contains('react-flow__edge')) return true;
+            if (node.classList?.contains('react-flow__edge-path')) return true;
+            if (node.classList?.contains('react-flow__node')) return true;
+            // 他の重要な要素も含める
+            return !node.classList?.contains('react-flow__minimap') &&
+                   !node.classList?.contains('react-flow__controls');
+          },
         });
 
         // ダウンロード実行
@@ -762,10 +765,10 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
 const InnerWithRef = forwardRef<BoardHandle, Props>(CanvasInner);
 
 // MARK: エクスポート — ReactFlowProvider で内側を包む
-const WhyBoardCanvas = forwardRef<BoardHandle, Props>(function WhyBoardCanvas({ boardId, style }, ref) {
+const WhyBoardCanvas = forwardRef<BoardHandle, Props>(function WhyBoardCanvas({ tenantId, boardId, style }, ref) {
   return (
     <ReactFlowProvider>
-      <InnerWithRef ref={ref} boardId={boardId} style={style} />
+      <InnerWithRef ref={ref} tenantId={tenantId} boardId={boardId} style={style} />
     </ReactFlowProvider>
   );
 });

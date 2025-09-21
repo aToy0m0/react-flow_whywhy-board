@@ -6,10 +6,10 @@ import clsx from "clsx";
 import type { NodeType, WhyNodeData } from "./boardTypes";
 
 const colors: Record<NodeType, { border: string; bg: string }> = {
-  root: { border: "border-red-500", bg: "bg-red-50" },
-  why: { border: "border-gray-500", bg: "bg-gray-50" },
-  cause: { border: "border-green-600", bg: "bg-green-50" },
-  action: { border: "border-blue-600", bg: "bg-blue-50" },
+  root: { border: "border-error", bg: "bg-error/10" },
+  why: { border: "border-soft", bg: "bg-surface-card" },
+  cause: { border: "border-success", bg: "bg-success/10" },
+  action: { border: "border-highlight", bg: "bg-highlight/10" },
 };
 
 function Header({ type, index }: { type: NodeType; index?: number; adopted?: boolean }) {
@@ -130,6 +130,9 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
               checked={!!d.adopted}
               disabled={d.type === "why" && (d.hasChildren(id) || d.hasCauseDescendant?.(id))}
               onChange={(e) => d.onToggleAdopted?.(id, e.target.checked)}
+              onPointerDown={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+              className="nodrag"
             />
             採用
           </label>
@@ -146,9 +149,11 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
           d.onUpdateHeight?.(id, el.scrollHeight);
         }}
         onPointerDown={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+        onDragStart={(e) => e.preventDefault()}
         placeholder={placeholder}
         rows={2}
-        className="mt-1 w-full resize-none bg-transparent outline-none"
+        className="mt-1 w-full resize-none bg-transparent outline-none nodrag"
       />
       {/* 左（上位）ハンドルはルートで非表示 */}
       {d.type !== "root" && (

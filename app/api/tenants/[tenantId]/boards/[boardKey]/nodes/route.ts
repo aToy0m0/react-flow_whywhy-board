@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { randomUUID } from 'crypto';
 import { NodeCategory } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 
@@ -116,6 +117,7 @@ function calcDepths(nodes: SerializedNode[], edges: SerializedEdge[], rootId?: s
 
 function buildGraphFromNodes(nodes: Array<{
   id: string;
+  nodeKey: string | null;
   content: string;
   category: NodeCategory;
   x: number;
@@ -124,26 +126,32 @@ function buildGraphFromNodes(nodes: Array<{
   createdAt: Date;
   prevNodes: string[];
   nextNodes: string[];
+  // uiHeight?: number | null; // TODO: マイグレーション後に有効化
 }>): SerializedGraph {
-  const serializedNodes: SerializedNode[] = nodes.map((node) => ({
-    id: node.id,
-    label: node.content,
-    type: mapCategoryToNodeType(node.category),
-    x: node.x,
-    y: node.y,
-    adopted: node.adopted,
-    createdAt: node.createdAt?.getTime?.() ?? undefined,
-  }));
+  const serializedNodes: SerializedNode[] = nodes.map((node) => {
+    const key = node.nodeKey ?? node.id;
+    return {
+      id: key,
+      label: node.content,
+      type: mapCategoryToNodeType(node.category),
+      x: node.x,
+      y: node.y,
+      adopted: node.adopted,
+      createdAt: node.createdAt?.getTime?.() ?? undefined,
+      // uiHeight: node.uiHeight ?? undefined, // TODO: マイグレーション後に有効化
+    };
+  });
 
   const edgeSet = new Set<string>();
   const serializedEdges: SerializedEdge[] = [];
 
   nodes.forEach((node) => {
-    node.nextNodes.forEach((targetId) => {
-      const edgeId = `e_${node.id}_${targetId}`;
+    const sourceKey = node.nodeKey ?? node.id;
+    node.nextNodes.forEach((targetKey) => {
+      const edgeId = `e_${sourceKey}_${targetKey}`;
       if (edgeSet.has(edgeId)) return;
       edgeSet.add(edgeId);
-      serializedEdges.push({ id: edgeId, source: node.id, target: targetId });
+      serializedEdges.push({ id: edgeId, source: sourceKey, target: targetKey });
     });
   });
 
@@ -213,6 +221,7 @@ export async function GET(
 
   const graph = buildGraphFromNodes(nodes.map((node) => ({
     id: node.id,
+    nodeKey: node.nodeKey ?? null,
     content: node.content,
     category: node.category,
     x: node.x,
@@ -221,6 +230,7 @@ export async function GET(
     createdAt: node.createdAt,
     prevNodes: node.prevNodes,
     nextNodes: node.nextNodes,
+    // uiHeight: node.uiHeight, // TODO: マイグレーション後に有効化
   })));
 
   return NextResponse.json({
@@ -279,7 +289,7 @@ export async function PUT(
       const nextNodes = edges.filter((e) => e.source === node.id).map((e) => e.target);
 
       return {
-        id: node.id,
+        id: randomUUID(),
         tenantId: tenant.id,
         boardId: board.id,
         nodeKey: node.id,
@@ -316,6 +326,7 @@ export async function PUT(
 
   const graph = buildGraphFromNodes(refreshedNodes.map((node) => ({
     id: node.id,
+    nodeKey: node.nodeKey ?? null,
     content: node.content,
     category: node.category,
     x: node.x,

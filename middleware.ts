@@ -2,12 +2,10 @@ export { default } from 'next-auth/middleware';
 
 export const config = {
   matcher: [
-    '/:tenantId/board/:path*',
+    '/',
+    '/init/:path*',
     '/manage/:path*',
-    '/:tenantId/manage/:path*',
-    '/login',
-    '/admin/:path*',
-    '/docs/:path*',
-    '/api/tenants/:path*',
+    '/tenants/:path*',
+    // '/api/tenants/:path*', // API routes handle their own auth
   ],
 };

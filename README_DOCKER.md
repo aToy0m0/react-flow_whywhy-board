@@ -26,8 +26,6 @@
 | 変数 | 用途 | 例 |
 | ---- | ---- | -- |
 | `DATABASE_URL` | Prisma / アプリの DB 接続文字列 | `postgresql://whyboard:whyboard@db:5432/whyboard` |
-| `BASIC_AUTH_USER` | Basic 認証ユーザー名 | `admin@example.com` |
-| `BASIC_AUTH_PASSWORD` | Basic 認証パスワード | `changeme` |
 | `NEXT_PUBLIC_TENANT_ID` | テナント識別子 | `default` |
 | `NEXT_PUBLIC_API_BASE_URL` | フロントからの API ベース URL | `http://localhost:3000` |
 | `NEXT_PUBLIC_REPO_URL` | ドキュメント参照用のリポジトリ URL（任意） | `https://github.com/your-org/your-repo/blob/main` |
@@ -40,34 +38,39 @@ Dockerfile にも既定値が入っていますが、実環境では `.env` で�
 
 リポジトリのルート（`yy-board_nextjs/whywhybord`）で以下を実行します。
 
-1. **Docker ネットワークと DB の起動**
-   ```bash
-   docker compose up -d db
-   ```
-
-2. **Prisma マイグレーションの適用**（DB スキーマ生成）
-   ```bash
-   docker compose run --rm \
-     -v "$(pwd)/prisma:/app/prisma" \
-     web npx prisma migrate dev --name init --schema prisma/schema.prisma
-   ```
-
-3. **Prisma クライアントの生成**
-   ```bash
-   docker compose run --rm \
-     -v "$(pwd)/prisma:/app/prisma" \
-     web npx prisma generate --schema prisma/schema.prisma
-   ```
-
-4. **アプリ本体のビルド & 起動**
+1. **アプリと DB をビルド・起動**
    ```bash
    docker compose up -d --build
    ```
 
-5. **動作確認**
-   ブラウザで `http://localhost:3000` にアクセスし、Basic 認証を通過できれば成功です。
+2. **Prisma マイグレーションの適用**（DB スキーマ生成）
+   ```bash
+   docker compose exec web npx prisma migrate deploy
+   ```
 
-> **Note:** 既に DB ボリュームが存在する場合はマイグレーションのみを再実行してください。`DATABASE_URL` が `postgresql://...@db:5432/...` になっていれば `web` コンテナから `db` に接続できます。
+3. **Prisma クライアントの再生成（任意）**
+   ```bash
+   docker compose exec web npx prisma generate
+   ```
+
+4. **アプリの再起動**
+   ```bash
+   docker compose restart web
+   ```
+
+5. **スーパー管理者の初期化**
+   ```bash
+   curl -X POST http://localhost:3000/api/init
+   ```
+   `SUPERADMIN_EMAIL` / `SUPERADMIN_PASSWORD` が既に存在する場合は `created: false` が返ります。
+
+6. **動作確認**
+   - ブラウザで `http://localhost:3000/login` を開き、以下でサインインします。
+     - ユーザー: `SUPERADMIN_EMAIL`（既定は `admin@example.com`）
+     - パスワード: `SUPERADMIN_PASSWORD`（`.env` に設定した値）
+   - サインイン後、`http://localhost:3000/default/board/MVP` を確認してください。
+
+> **Note:** DB ボリュームを削除した場合は、再度ステップ 2 以降を実行し、最後に `/api/init` を叩いてください。`docker compose exec db psql -U whyboard -d whyboard -c '\dt'` でテーブルが存在するか確認できます。
 
 ---
 

@@ -8,10 +8,12 @@ services:
       - "3000:3000"
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://whyboard:whyboard@db:5432/whyboard}
-      BASIC_AUTH_USER: ${BASIC_AUTH_USER:-admin@example.com}
-      BASIC_AUTH_PASSWORD: ${BASIC_AUTH_PASSWORD:-changeme}
       NEXT_PUBLIC_TENANT_ID: ${NEXT_PUBLIC_TENANT_ID:-default}
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:3000}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-please-change-me}
+      SUPERADMIN_EMAIL: ${SUPERADMIN_EMAIL:-admin@example.com}
+      SUPERADMIN_PASSWORD: ${SUPERADMIN_PASSWORD:-changeme}
     depends_on:
       db:
         condition: service_healthy

@@ -2,12 +2,12 @@ import { prisma } from './prisma';
 import { compare } from 'bcryptjs';
 import type { JWT } from 'next-auth/jwt';
 import type { NextAuthOptions } from 'next-auth';
+import type { UserRole } from '@prisma/client';
 import CredentialsProvider from 'next-auth/providers/credentials';
-
 type AuthUser = {
   id: string;
   email: string;
-  role: string;
+  role: UserRole;
   tenantId: string;
 };
 
@@ -26,6 +26,7 @@ export const authOptions: NextAuthOptions = {
   session: {
     strategy: 'jwt',
   },
+  secret: process.env.NEXTAUTH_SECRET,
   pages: {
     signIn: '/login',
   },

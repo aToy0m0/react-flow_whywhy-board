@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import WhyBoardCanvas from "@/components/WhyBoardCanvas";
 import Sidebar from "@/components/Sidebar";
 import Header from "@/components/Header";
@@ -11,8 +11,63 @@ export default function BoardPage({ params }: { params: { tenantId: string; boar
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [boardName, setBoardName] = useState<string>(boardId);
+  const [isRenaming, setIsRenaming] = useState(false);
 
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
+
+  useEffect(() => {
+    let active = true;
+    async function fetchBoard() {
+      try {
+        const res = await fetch(`/api/tenants/${tenantId}/boards/${boardId}`);
+        if (!res.ok) return;
+        const data = await res.json().catch(() => null);
+        if (!active || !data?.ok) return;
+        if (typeof data.board?.name === "string" && data.board.name.trim()) {
+          setBoardName(data.board.name);
+        }
+      } catch {
+        // ignore fetch errors
+      }
+    }
+
+    fetchBoard();
+    return () => {
+      active = false;
+    };
+  }, [tenantId, boardId]);
+
+  const handleRename = useCallback(async () => {
+    if (isRenaming) return;
+    const next = window.prompt("ボード名を入力", boardName);
+    if (next === null) return;
+    const trimmed = next.trim();
+    if (!trimmed) {
+      window.alert("ボード名を入力してください。");
+      return;
+    }
+    if (trimmed === boardName) return;
+
+    setIsRenaming(true);
+    try {
+      const res = await fetch(`/api/tenants/${tenantId}/boards/${boardId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) {
+        throw new Error(data?.error ?? "ボード名の更新に失敗しました。");
+      }
+      setBoardName(data.board?.name ?? trimmed);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "ボード名の更新に失敗しました。";
+      window.alert(message);
+    } finally {
+      setIsRenaming(false);
+    }
+  }, [boardName, boardId, tenantId, isRenaming]);
 
   return (
     <div className="flex h-screen bg-gradient-to-br from-gray-50 to-blue-50 font-sans">
@@ -46,6 +101,9 @@ export default function BoardPage({ params }: { params: { tenantId: string; boar
         <Header 
           tenantId={tenantId}
           boardId={boardId}
+          boardName={boardName}
+          onRename={handleRename}
+          renaming={isRenaming}
           onToggleSidebar={toggleSidebar}
           boardRef={ref}
         />

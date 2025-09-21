@@ -1,13 +1,23 @@
+/* CSS変数は tenantThemes.ts で管理 */
+:root {
+  --radius-base: 8px;
+  --focus-ring: 3px;
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-html, body, #__next {
+html,
+body,
+#__next {
   height: 100%;
 }
 
 body {
-  @apply antialiased text-gray-900 bg-white;
+  @apply antialiased;
+  background-color: var(--color-background);
+  color: var(--color-paragraph);
 }
 
 /* React Flow handle size and position tweaks (global) */
@@ -29,4 +39,128 @@ body {
 
 .react-flow .react-flow__handle-left {
   left: calc(var(--handle-offset) * -1) !important;
+}
+
+@layer utilities {
+  /* テキスト色 */
+  .text-headline {
+    color: var(--color-headline) !important;
+  }
+  .text-paragraph {
+    color: var(--color-paragraph) !important;
+  }
+  .text-highlight {
+    color: var(--color-highlight) !important;
+  }
+  .text-muted {
+    color: var(--color-muted) !important;
+  }
+  .text-subtle {
+    color: var(--color-subtle) !important;
+  }
+  .text-button {
+    color: var(--color-button-text) !important;
+  }
+  .text-danger {
+    color: var(--color-danger-text) !important;
+  }
+
+  /* 背景色 */
+  .bg-background {
+    background-color: var(--color-background) !important;
+  }
+  .bg-button {
+    background-color: var(--color-button) !important;
+  }
+  .bg-button-hover {
+    background-color: var(--color-button-hover) !important;
+  }
+  .bg-surface-card {
+    background-color: var(--surface-card) !important;
+  }
+  .bg-surface-card-muted {
+    background-color: var(--surface-card-muted) !important;
+  }
+  .bg-surface-card-strong {
+    background-color: var(--surface-card-strong) !important;
+  }
+  .bg-surface-panel {
+    background-color: var(--surface-panel) !important;
+  }
+  .bg-surface-overlay {
+    background-color: var(--surface-overlay) !important;
+  }
+  .bg-surface-hover {
+    background-color: var(--surface-hover) !important;
+  }
+  .bg-surface-hover-strong {
+    background-color: var(--surface-hover-strong) !important;
+  }
+  .bg-surface-active {
+    background-color: var(--surface-active) !important;
+  }
+  .bg-surface-danger {
+    background-color: var(--surface-danger) !important;
+  }
+
+  /* ボーダー色 */
+  .border-highlight {
+    border-color: var(--color-highlight) !important;
+  }
+  .border-soft {
+    border-color: var(--border-soft) !important;
+  }
+  .border-accent {
+    border-color: var(--border-accent) !important;
+  }
+  .border-strong {
+    border-color: var(--border-strong) !important;
+  }
+  .border-danger {
+    border-color: var(--border-danger) !important;
+  }
+
+  /* アクセント色 */
+  .bg-accent-solid {
+    background-color: var(--accent-solid) !important;
+  }
+  .text-accent-soft {
+    color: var(--accent-soft) !important;
+  }
+  .border-accent-border {
+    border-color: var(--accent-border) !important;
+  }
+
+  /* ホバー状態 */
+  .hover\:bg-accent-solid-hover:hover {
+    background-color: var(--accent-solid-hover) !important;
+  }
+  .hover\:bg-surface-hover:hover {
+    background-color: var(--surface-hover) !important;
+  }
+  .hover\:bg-surface-danger:hover {
+    background-color: var(--surface-danger) !important;
+  }
+  .hover\:border-highlight:hover {
+    border-color: var(--color-highlight) !important;
+  }
+
+  /* フォーカス状態 */
+  .focus\:border-accent-border:focus {
+    border-color: var(--accent-border-active) !important;
+  }
+  .focus\:ring-accent:focus {
+    --tw-ring-color: var(--accent-ring) !important;
+  }
+  .focus\:ring-primary:focus {
+    --tw-ring-color: var(--ring-primary) !important;
+  }
+  .focus\:ring-highlight:focus {
+    --tw-ring-color: var(--ring-highlight) !important;
+  }
+
+  /* React Flow グリッド */
+  .bg-grid-dot {
+    background-color: var(--grid-dot-color) !important;
+  }
 }
