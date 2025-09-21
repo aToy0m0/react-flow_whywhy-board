@@ -26,13 +26,11 @@
 ## セットアップ
 
 ### 前提条件
-- Node.js 18以上
 - Docker & Docker Compose
 
-### 開発環境
+### 環境構築
 ```bash
 cd whywhybord
-npm install
 
 # 環境変数設定
 cp .env.example .env
@@ -40,26 +38,10 @@ cp .env.example .env
 # NextAuth用のシークレットキー生成
 openssl rand -base64 32
 
-# .envファイルにNEXTAUTH_SECRETを設定
+# .envファイルを編集（必須項目）:
 # NEXTAUTH_SECRET=<生成されたキー>
-
-# データベース起動
-docker-compose up -d
-
-# マイグレーション実行
-npx prisma migrate dev
-
-# 開発サーバー起動
-npm run dev
-```
-
-### Docker本番環境
-```bash
-cd whywhybord
-
-# 環境変数設定
-cp .env.example .env
-# .envファイルを編集（DATABASE_URL、NEXTAUTH_SECRET等）
+# SUPERADMIN_EMAIL=admin@example.com
+# SUPERADMIN_PASSWORD=<任意のパスワード>
 
 # アプリケーションビルド・起動
 docker compose up -d --build
@@ -75,9 +57,9 @@ docker compose restart web
 ```
 
 ### 初回セットアップ
-1. http://localhost:3000/setup でスーパーアドミンユーザーを作成
+1. http://localhost:3000 にアクセスしスーパーアドミンユーザーを作成
 2. テナントを作成
-3. ユーザーを招待
+3. ユーザーを招待(テナントアドミンおよびメンバー)
 
 ## ユーザー権限
 
@@ -115,21 +97,5 @@ docker compose restart web
 
 詳細は `prisma/schema.prisma` を参照。
 
-## トラブルシューティング
-
-### ポート使用中
-```bash
-# 他のプロセスを停止するか、別ポートで起動
-npm run dev -- -p 3001
-```
-
-### データベース接続エラー
-```bash
-# PostgreSQLコンテナの起動確認
-docker-compose ps
-docker-compose up -d
-```
-
 ## License
-
-MIT License
+- MIT License
