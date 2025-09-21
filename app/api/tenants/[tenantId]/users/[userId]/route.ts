@@ -19,11 +19,12 @@ export async function GET(
     const { tenantId, userId } = params;
     const { user } = session;
 
-    // 権限チェック（SUPER_ADMINまたは同テナントのTENANT_ADMIN）
+    // 権限チェック（SUPER_ADMINまたは同テナントのTENANT_ADMIN、または自分自身のMEMBER）
     const isSuperAdmin = user.role === "SUPER_ADMIN";
     const isTenantAdmin = user.role === "TENANT_ADMIN" && user.tenantId === tenantId;
+    const isSelfMember = user.role === "MEMBER" && user.id === userId && user.tenantId === tenantId;
 
-    if (!isSuperAdmin && !isTenantAdmin) {
+    if (!isSuperAdmin && !isTenantAdmin && !isSelfMember) {
       return NextResponse.json({ error: "権限がありません" }, { status: 403 });
     }
 

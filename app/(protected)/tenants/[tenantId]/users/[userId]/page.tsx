@@ -16,12 +16,20 @@ interface User {
   updatedAt: string;
 }
 
+interface CurrentUser {
+  id: string;
+  email: string;
+  role: string;
+  tenantId: string;
+}
+
 export default function TenantUserDetailPage({ params }: Props) {
   const { tenantId, userId } = params;
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
   const [user, setUser] = useState<User | null>(null);
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -41,13 +49,23 @@ export default function TenantUserDetailPage({ params }: Props) {
   useEffect(() => {
     const fetchUser = async () => {
       try {
-        const response = await fetch(`/api/tenants/${tenantId}/users/${userId}`);
-        if (!response.ok) {
+        const [userResponse, sessionResponse] = await Promise.all([
+          fetch(`/api/tenants/${tenantId}/users/${userId}`),
+          fetch('/api/auth/session')
+        ]);
+
+        if (!userResponse.ok) {
           throw new Error("ユーザー情報の取得に失敗しました");
         }
-        const data = await response.json();
-        setUser(data.user);
-        setSelectedRole(data.user.role);
+
+        const userData = await userResponse.json();
+        setUser(userData.user);
+        setSelectedRole(userData.user.role);
+
+        if (sessionResponse.ok) {
+          const sessionData = await sessionResponse.json();
+          setCurrentUser(sessionData.user);
+        }
       } catch (error) {
         setError(error instanceof Error ? error.message : "エラーが発生しました");
       } finally {
@@ -226,20 +244,26 @@ export default function TenantUserDetailPage({ params }: Props) {
               パスワード変更
             </button>
 
-            <button
-              onClick={() => setShowRoleForm(!showRoleForm)}
-              className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-background transition hover:bg-accent/90"
-            >
-              ロール変更
-            </button>
+            {/* ロール変更は管理者権限のみ */}
+            {currentUser && (currentUser.role === "SUPER_ADMIN" || currentUser.role === "TENANT_ADMIN") && (
+              <button
+                onClick={() => setShowRoleForm(!showRoleForm)}
+                className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-background transition hover:bg-accent/90"
+              >
+                ロール変更
+              </button>
+            )}
 
-            <button
-              onClick={handleDeleteUser}
-              disabled={isPending}
-              className="rounded-lg bg-danger px-4 py-2 text-sm font-semibold text-background transition hover:bg-danger/90 disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              {isPending ? "削除中..." : "ユーザー削除"}
-            </button>
+            {/* ユーザー削除は管理者権限のみ */}
+            {currentUser && (currentUser.role === "SUPER_ADMIN" || currentUser.role === "TENANT_ADMIN") && (
+              <button
+                onClick={handleDeleteUser}
+                disabled={isPending}
+                className="rounded-lg bg-danger px-4 py-2 text-sm font-semibold text-background transition hover:bg-danger/90 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {isPending ? "削除中..." : "ユーザー削除"}
+              </button>
+            )}
           </div>
         </section>
 
@@ -316,7 +340,7 @@ export default function TenantUserDetailPage({ params }: Props) {
         )}
 
         {/* ロール変更フォーム */}
-        {showRoleForm && (
+        {showRoleForm && currentUser && (currentUser.role === "SUPER_ADMIN" || currentUser.role === "TENANT_ADMIN") && (
           <section className="rounded-3xl bg-surface-card p-6 shadow-xl backdrop-blur">
             <h3 className="text-lg font-semibold text-headline mb-4">ロール変更</h3>
 

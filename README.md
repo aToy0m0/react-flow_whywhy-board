@@ -1,73 +1,108 @@
-# WhyWhy Board (whywhybord)
+# WhyWhy Board
 
-シンプルに「なぜなぜ分析（5 Whys）」を行える Web アプリです。ノードを追加して因果関係（なぜ→原因→対策）を整理し、TOML で保存・読み込み、PNG 画像としてエクスポートできます。
-※開発中です。
+なぜなぜ分析（5 Whys）を行うためのWebアプリケーション。組織単位でユーザーを管理し、ボードを共有できる。
 
-## 主な機能
-- ノード編集: 文章入力、採用(チェック)のトグル
-- ノード追加: 右クリックメニュー、または右ハンドルを空白にドラッグ
-- 自動整列: 兄弟ノードを等間隔に配置（ヘッダーの「整列」）
-- 保存/読込: ブラウザローカル保存、TOMLファイルの入出力
-- 画像出力: キャンバスを PNG としてダウンロード
+## 機能
 
-## 開発環境
+- ノードベースのビジュアル分析エディタ
+- ドラッグ&ドロップによるノード作成・編集
+- Root、Why、Cause、Actionノードによる分析構造化
+- PNG形式での図の出力
+- 組織（テナント）単位でのユーザー管理
+- 3段階のユーザー権限（SUPER_ADMIN、TENANT_ADMIN、MEMBER）
+- TOML形式でのデータインポート・エクスポート
+
+## 技術スタック
+
+- Next.js 14 (App Router)
+- React 18
+- TypeScript
+- PostgreSQL
+- Prisma ORM
+- NextAuth.js
+- React Flow v12
+- Tailwind CSS
+
+## セットアップ
+
+### 前提条件
+- Node.js 18以上
+- Docker & Docker Compose
+
+### 開発環境
 ```bash
-$ node -v
-v20.19.4
-$ npm -v
-11.6.0
-$ npm list react
-react@18.3.1
-$ docker -v
-Docker version 28.0.1, build 068a01e
-```
-
-## データモデル/スキーマ
-- 内部 JSON 形式（シリアライズ）: `schemas/serialized-graph.v1.schema.json`
-- TOML ファイルの論理構造（JSON 表現）: `schemas/whyboard-toml.v1.schema.json`
-  - TOML ↔ JSON は `lib/boardIO.ts` の `toToml`/`fromToml` に準拠
-  - 将来の移行のために `version` を付ける運用を推奨
-
-## クイックスタート
-前提: Node.js 18+（推奨 20）
-
-```
 cd whywhybord
 npm install
+
+# 環境変数設定
+cp .env.example .env
+
+# データベース起動
+docker-compose up -d
+
+# マイグレーション実行
+npx prisma migrate dev
+
+# 開発サーバー起動
 npm run dev
-# http://localhost:3000/default/board/MVP を開く
 ```
 
-本番ビルド/起動
+### 初回セットアップ
+1. http://localhost:3000/setup でスーパーアドミンユーザーを作成
+2. テナントを作成
+3. ユーザーを招待
+
+## ユーザー権限
+
+### SUPER_ADMIN
+- 全テナントの管理
+- システム設定の変更
+
+### TENANT_ADMIN
+- 自テナント内のユーザー管理
+- テナント設定の変更
+
+### MEMBER
+- ボードの作成・編集
+- 自分の情報の変更
+
+## 基本操作
+
+### ノード操作
+- 右ハンドルを空白にドラッグしてノード追加
+- 右クリックでメニュー表示（追加・削除）
+- ダブルクリックでテキスト編集
+
+### ボード管理
+- 自動保存
+- TOML形式でエクスポート・インポート
+- PNG画像として出力
+
+## データベーススキーマ
+
+主要なテーブル:
+- `Tenant` - 組織情報
+- `User` - ユーザー情報とロール
+- `Board` - なぜなぜ分析ボード
+- `Node` - 分析ノード
+
+詳細は `prisma/schema.prisma` を参照。
+
+## トラブルシューティング
+
+### ポート使用中
+```bash
+# 他のプロセスを停止するか、別ポートで起動
+npm run dev -- -p 3001
 ```
-cd whywhybord
-npm run build
-npm run start
-# 既に 3000 番使用中なら別ポートで: npm run start -- -p 3001
+
+### データベース接続エラー
+```bash
+# PostgreSQLコンテナの起動確認
+docker-compose ps
+docker-compose up -d
 ```
-
-補足: 開発ビルドは `.next-dev/`、本番ビルドは `.next/` に出力されます（`next.config.mjs` で分離）。
-
-## 使い方のヒント
-- 右ハンドルをドラッグして空白にドロップすると子ノードを自動追加します。
-- 右クリックでメニューが開き、「なぜ」「原因」「対策」の追加や削除ができます。
-- ヘッダーのボタン
-  - 一時保存/一時読込: ブラウザに TOML を保存/復元
-  - ファイル出力/読込: TOML のダウンロード/アップロード
-  - PNG書き出し: 現在の図を画像として保存
-  - クリア/整列/画面フィット: 図の初期化、再レイアウト、全体表示
-
-## よくある問題と対処
-- ポートが使用中: EADDRINUSE :3000 → 既存の dev を停止、または `-p` でポート変更
-- 本番起動で「ビルドが無い」: `rm -rf .next && npm run build && npm run start`
-- HMR の 404: `*.hot-update.json 404` は一時的なもので無害です
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-### What this means:
-- ✅ 商用利用可能
-- ✅ 自由に修正・配布可能
-- ✅ プライベートプロジェクトでの使用可能
-- ⚠️ 著作権表示とライセンス表示が必要
+MIT License

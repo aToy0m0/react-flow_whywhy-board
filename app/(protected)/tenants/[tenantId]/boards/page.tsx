@@ -25,7 +25,7 @@ export default async function TenantBoardListPage({ params }: Props) {
         { slug: tenantId },
       ],
     },
-    select: { id: true, slug: true },
+    select: { id: true, slug: true, name: true },
   });
 
   if (!tenant) {
@@ -62,7 +62,7 @@ export default async function TenantBoardListPage({ params }: Props) {
         <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-sm uppercase tracking-[0.4em] text-subtle">Boards</p>
-            <h1 className="text-3xl font-semibold text-headline">{tenant.slug} のボード一覧</h1>
+            <h1 className="text-3xl font-semibold text-headline">{tenant.name} のボード一覧</h1>
           </div>
           <Link
             href={`/tenants/${tenant.slug}/boards/new`}

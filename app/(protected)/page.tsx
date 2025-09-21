@@ -14,23 +14,33 @@ export default async function DashboardPage() {
   const tenantId = user?.tenantId;
   const isSuperAdmin = user?.role === "SUPER_ADMIN";
 
-  const boards = tenantId
-    ? await prisma.board.findMany({
-        where: { tenantId },
-        orderBy: { updatedAt: "desc" },
-        take: 4,
-        select: {
-          id: true,
-          boardKey: true,
-          name: true,
-          updatedAt: true,
-        },
-      })
-    : [];
+  const [tenant, boards] = tenantId
+    ? await Promise.all([
+        prisma.tenant.findUnique({
+          where: { id: tenantId },
+          select: { name: true }
+        }),
+        prisma.board.findMany({
+          where: { tenantId },
+          orderBy: { updatedAt: "desc" },
+          take: 4,
+          select: {
+            id: true,
+            boardKey: true,
+            name: true,
+            updatedAt: true,
+          },
+        })
+      ])
+    : [null, []];
 
   const users = tenantId
     ? await prisma.user.findMany({
-        where: { tenantId: user.tenantId },
+        where: {
+          tenantId: user.tenantId,
+          // メンバー権限の場合は自分のみ表示
+          ...(user.role === "MEMBER" ? { id: user.id } : {})
+        },
         orderBy: { createdAt: "desc" },
         take: 4,
         select: {
@@ -50,7 +60,7 @@ export default async function DashboardPage() {
           <h1 className="text-3xl font-semibold text-headline">ダッシュボード</h1>
           <p className="text-muted">
             {tenantId
-              ? `${tenantId} テナントの状況を確認できます。`
+              ? `${tenant?.name || tenantId} テナントの状況を確認できます。`
               : "テナントがまだ割り当てられていません。セットアップを完了してください。"}
           </p>
           <div className="flex flex-wrap gap-3">
@@ -112,26 +122,37 @@ export default async function DashboardPage() {
 
           <div className="rounded-3xl bg-surface-card p-6 shadow-xl backdrop-blur">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-headline">ユーザー招待状況</h2>
+              <h2 className="text-lg font-semibold text-headline">
+                {user?.role === "MEMBER" ? "自分の情報" : "ユーザー招待状況"}
+              </h2>
               {tenantId && (
                 <Link
                   href={`/tenants/${tenantId}/users`}
                   className="text-sm text-accent-solid hover:text-accent-solid-hover"
                 >
-                  管理ページへ
+                  {user?.role === "MEMBER" ? "詳細表示" : "管理ページへ"}
                 </Link>
               )}
             </div>
             <div className="mt-4 space-y-3">
               {!tenantId && <p className="text-sm text-muted">テナントが未設定です。</p>}
               {tenantId && users.length === 0 && (
-                <p className="text-sm text-muted">ユーザーがまだ登録されていません。招待を送りましょう。</p>
+                <p className="text-sm text-muted">
+                  {user?.role === "MEMBER"
+                    ? "ユーザー情報を取得できませんでした。"
+                    : "ユーザーがまだ登録されていません。招待を送りましょう。"
+                  }
+                </p>
               )}
               {users.map((member) => (
-                <div key={member.id} className="rounded-xl border border-soft bg-surface-card-muted px-4 py-3">
+                <Link
+                  key={member.id}
+                  href={`/tenants/${tenantId}/users/${member.id}`}
+                  className="block rounded-xl border border-soft bg-surface-card-muted px-4 py-3 transition hover:border-accent"
+                >
                   <p className="text-sm font-semibold text-headline">{member.email}</p>
                   <p className="text-xs text-muted">ロール: {member.role}</p>
-                </div>
+                </Link>
               ))}
             </div>
           </div>

@@ -18,24 +18,34 @@ export default async function TenantUsersPage({ params }: Props) {
   const { user } = session;
 
   const isSuperAdmin = user.role === "SUPER_ADMIN";
+  const isTenantAdmin = user.role === "TENANT_ADMIN" && user.tenantId === tenantId;
   const isTenantMember = user.tenantId === tenantId;
+
   if (!isSuperAdmin && !isTenantMember) {
     redirect("/");
   }
 
-  const users = await prisma.user.findMany({
-    where: {
-      tenantId,
-      role: { not: "SUPER_ADMIN" } // SUPER_ADMINを除外
-    },
-    orderBy: { createdAt: "asc" },
-    select: {
-      id: true,
-      email: true,
-      role: true,
-      createdAt: true,
-    },
-  });
+  const [tenant, users] = await Promise.all([
+    prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true }
+    }),
+    prisma.user.findMany({
+      where: {
+        tenantId,
+        role: { not: "SUPER_ADMIN" }, // SUPER_ADMINを除外
+        // メンバー権限の場合は自分のみ表示
+        ...(user.role === "MEMBER" ? { id: user.id } : {})
+      },
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        createdAt: true,
+      },
+    })
+  ]);
 
   return (
     <main className="min-h-screen bg-background text-paragraph">
@@ -43,14 +53,16 @@ export default async function TenantUsersPage({ params }: Props) {
         <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-sm uppercase tracking-[0.4em] text-subtle">Users</p>
-            <h1 className="text-3xl font-semibold text-headline">{tenantId} のユーザー</h1>
+            <h1 className="text-3xl font-semibold text-headline">{tenant?.name || tenantId} のユーザー</h1>
           </div>
-          <Link
-            href={`/tenants/${tenantId}/users/new`}
-            className="inline-flex rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-background transition hover:bg-accent/90"
-          >
-            新規ユーザー作成
-          </Link>
+          {(isSuperAdmin || isTenantAdmin) && (
+            <Link
+              href={`/tenants/${tenantId}/users/new`}
+              className="inline-flex rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-background transition hover:bg-accent/90"
+            >
+              新規ユーザー作成
+            </Link>
+          )}
         </header>
 
         {users.length === 0 ? (
