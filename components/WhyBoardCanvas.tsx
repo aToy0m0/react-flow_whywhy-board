@@ -573,6 +573,12 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
       }
       const data = (await res.json()) as { graph?: SerializedGraph };
       const graph = data?.graph;
+      console.debug('[WhyBoard] loadRemoteFromServer:received', {
+        hasGraph: !!graph,
+        nodeCount: graph?.nodes?.length || 0,
+        edgeCount: graph?.edges?.length || 0,
+        firstNode: graph?.nodes?.[0]
+      });
       if (graph && Array.isArray(graph.nodes) && graph.nodes.length) {
         const enhancer = enhanceNodeRef.current;
         const { nodes: n2, edges: e2 } = deserializeGraph(graph, enhancer);

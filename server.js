@@ -63,178 +63,196 @@ app.prepare().then(() => {
     });
 
     // ノードロック要求
-    socket.on('lock-node', async (data) => {
-      const { nodeId } = data;
-      const { roomId, userId } = socket.data;
-
+    socket.on('lock-node', async ({ nodeId }) => {
+      const { roomId, userId, tenantId, boardKey } = socket.data;
       if (!roomId || !userId) {
-        socket.emit('lock-error', {
-          nodeId,
-          error: 'Not joined to any board'
-        });
+        socket.emit('lock-error', { nodeId, error: 'Not joined to any board' });
         return;
       }
 
-      console.log('[Socket.IO] Lock node request:', {
-        nodeId,
-        userId,
-        roomId
-      });
-
       try {
-        // APIを呼び出してロックを取得
-        const response = await fetch(`http://localhost:${port}/api/tenants/${socket.data.tenantId}/boards/${socket.data.boardKey}/nodes/${nodeId}/lock`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            // 実際の実装では認証ヘッダーも必要
-          }
+        const board = await prisma.board.findUnique({
+          where: { tenantId_boardKey: { tenantId, boardKey } },
+          select: { id: true },
         });
-
-        const result = await response.json();
-
-        if (result.ok) {
-          // ロック成功 - 全クライアントに通知
-          io.to(roomId).emit('node-locked', {
-            nodeId,
-            userId,
-            userName: result.lock.user.email,
-            lockedAt: result.lock.lockedAt
-          });
-        } else {
-          // ロック失敗
-          socket.emit('lock-error', {
-            nodeId,
-            error: result.error,
-            lockedBy: result.lockedBy
-          });
+        const node = board && await prisma.node.findFirst({
+          where: { boardId: board.id, OR: [{ id: nodeId }, { nodeKey: nodeId }] },
+          select: { id: true },
+        });
+        if (!node) {
+          socket.emit('lock-error', { nodeId, error: 'Node not found' });
+          return;
         }
-      } catch (error) {
-        console.error('[Socket.IO] Lock node error:', error);
-        socket.emit('lock-error', {
-          nodeId,
-          error: 'Internal server error'
+
+        // 既存ロック確認
+        const existing = await prisma.nodeLock.findFirst({
+          where: { nodeId: node.id, isActive: true },
+          include: { user: { select: { id: true, email: true } } },
         });
+
+        if (existing) {
+          if (existing.userId === userId) {
+            // 自分のロックは延長
+            const updated = await prisma.nodeLock.update({
+              where: { id: existing.id },
+              data: { lockedAt: new Date() },
+              include: { user: { select: { id: true, email: true } } },
+            });
+            io.to(roomId).emit('node-locked', {
+              nodeId,
+              userId,
+              userName: updated.user.email,
+              lockedAt: updated.lockedAt,
+            });
+            return;
+          }
+          socket.emit('lock-error', { nodeId, error: 'Node is locked by another user', lockedBy: existing.user });
+          return;
+        }
+
+        // 新規ロック
+        const created = await prisma.nodeLock.create({
+          data: { nodeId: node.id, userId, isActive: true },
+          include: { user: { select: { id: true, email: true } } },
+        });
+
+        io.to(roomId).emit('node-locked', {
+          nodeId,
+          userId,
+          userName: created.user.email,
+          lockedAt: created.lockedAt,
+        });
+      } catch (e) {
+        console.error(e);
+        socket.emit('lock-error', { nodeId, error: 'Internal server error' });
       }
     });
 
     // ノードロック解除
-    socket.on('unlock-node', async (data) => {
-      const { nodeId } = data;
-      const { roomId, userId } = socket.data;
-
+    socket.on('unlock-node', async ({ nodeId }) => {
+      const { roomId, userId, tenantId, boardKey } = socket.data;
       if (!roomId || !userId) {
-        socket.emit('unlock-error', {
-          nodeId,
-          error: 'Not joined to any board'
-        });
+        socket.emit('unlock-error', { nodeId, error: 'Not joined to any board' });
         return;
       }
 
-      console.log('[Socket.IO] Unlock node request:', {
-        nodeId,
-        userId,
-        roomId
-      });
-
       try {
-        // APIを呼び出してロックを解除
-        const response = await fetch(`http://localhost:${port}/api/tenants/${socket.data.tenantId}/boards/${socket.data.boardKey}/nodes/${nodeId}/lock`, {
-          method: 'DELETE',
-          headers: {
-            'Content-Type': 'application/json',
-            // 実際の実装では認証ヘッダーも必要
-          }
+        const board = await prisma.board.findUnique({
+          where: { tenantId_boardKey: { tenantId, boardKey } },
+          select: { id: true },
         });
-
-        const result = await response.json();
-
-        if (result.ok) {
-          // ロック解除成功 - 全クライアントに通知
-          io.to(roomId).emit('node-unlocked', {
-            nodeId,
-            userId
-          });
-        } else {
-          socket.emit('unlock-error', {
-            nodeId,
-            error: result.error
-          });
+        const node = board && await prisma.node.findFirst({
+          where: { boardId: board.id, OR: [{ id: nodeId }, { nodeKey: nodeId }] },
+          select: { id: true },
+        });
+        if (!node) {
+          socket.emit('unlock-error', { nodeId, error: 'Node not found' });
+          return;
         }
-      } catch (error) {
-        console.error('[Socket.IO] Unlock node error:', error);
-        socket.emit('unlock-error', {
-          nodeId,
-          error: 'Internal server error'
+
+        // 自分のアクティブロックを解除
+        const updated = await prisma.nodeLock.updateMany({
+          where: { nodeId: node.id, userId, isActive: true },
+          data: { isActive: false, unlockedAt: new Date() },
         });
+
+        if (updated.count > 0) {
+          io.to(roomId).emit('node-unlocked', { nodeId, userId });
+        } else {
+          socket.emit('unlock-error', { nodeId, error: 'No active lock found' });
+        }
+      } catch (e) {
+        console.error(e);
+        socket.emit('unlock-error', { nodeId, error: 'Internal server error' });
       }
     });
 
     // ノード更新通知
     socket.on('node-updated', async (data) => {
       const { nodeId, content, position } = data;
-      const { roomId, userId } = socket.data;
-
-      if (!roomId) return;
-
-      console.log('[Socket.IO] Node updated:', { nodeId, userId, content });
+      const { roomId, userId, tenantId, boardKey } = socket.data;
+      if (!roomId || !tenantId || !boardKey) return;
 
       try {
-        // ノードが存在するか確認
-        const existingNode = await prisma.node.findUnique({
-          where: { id: nodeId }
+        // 1) ボード特定（tenantId + boardKey）
+        const board = await prisma.board.findUnique({
+          where: { tenantId_boardKey: { tenantId, boardKey } },
+          select: { id: true },
         });
-
-        if (!existingNode) {
-          console.error('[Socket.IO] Node not found in DB:', nodeId);
-          socket.emit('node-save-error', {
-            nodeId,
-            error: 'Node not found'
-          });
+        if (!board) {
+          socket.emit('node-save-error', { nodeId, error: 'Board not found' });
           return;
         }
 
-        // DBに保存
-        const updatedNode = await prisma.node.update({
-          where: { id: nodeId },
+        // 2) ノード特定（DBの id OR nodeKey のどちらでもヒット）
+        const node = await prisma.node.findFirst({
+          where: {
+            boardId: board.id,
+            OR: [{ id: nodeId }, { nodeKey: nodeId }],
+          },
+        });
+        if (!node) {
+          socket.emit('node-save-error', { nodeId, error: 'Node not found' });
+          return;
+        }
+
+        // 3) （任意だが推奨）ロック検証：自分のアクティブロックがあるか
+        const activeLock = await prisma.nodeLock.findFirst({
+          where: { nodeId: node.id, userId, isActive: true },
+        });
+        if (!activeLock) {
+          socket.emit('node-save-error', { nodeId, error: 'No active lock' });
+          return;
+        }
+
+        // 4) 履歴保存（before/after）
+        await prisma.nodeEdit.create({
           data: {
-            content: content || '',
-            ...(position ? { x: position.x, y: position.y } : {})
-          }
+            nodeId: node.id,
+            userId,
+            action: 'update',
+            beforeData: { content: node.content, x: node.x, y: node.y },
+            afterData: {
+              content: typeof content === 'string' ? content : node.content,
+              x: position?.x ?? node.x,
+              y: position?.y ?? node.y,
+            },
+          },
+        });
+
+        // 5) ノード更新
+        const updated = await prisma.node.update({
+          where: { id: node.id },
+          data: {
+            ...(typeof content === 'string' ? { content } : {}),
+            ...(position ? { x: position.x, y: position.y } : {}),
+          },
         });
 
         console.log('[Socket.IO] Node saved to DB:', {
-          nodeId,
+          nodeId: node.nodeKey ?? node.id,
           content: content?.substring(0, 50) + '...',
-          boardId: updatedNode.boardId
+          boardId: updated.boardId
         });
 
-        // 保存成功後、自分以外に更新を通知
+        // 6) ブロードキャスト（nodeKey を優先、なければ id）
+        const publicId = node.nodeKey ?? node.id;
         socket.to(roomId).emit('node-updated', {
-          nodeId,
-          content,
-          position,
+          nodeId: publicId,
+          content: updated.content,
+          position: { x: updated.x, y: updated.y },
           userId,
-          savedAt: new Date().toISOString()
+          savedAt: new Date().toISOString(),
         });
-
-        // 自分にも保存完了を通知
-        socket.emit('node-saved', {
-          nodeId,
-          savedAt: new Date().toISOString()
-        });
-
+        socket.emit('node-saved', { nodeId: publicId, savedAt: new Date().toISOString() });
       } catch (error) {
         console.error('[Socket.IO] Failed to save node to DB:', error);
-        socket.emit('node-save-error', {
-          nodeId,
-          error: error.message
-        });
+        socket.emit('node-save-error', { nodeId, error: error.message });
       }
     });
 
     // 切断処理
-    socket.on('disconnect', () => {
+    socket.on('disconnect', async () => {
       const { roomId, userId } = socket.data;
 
       console.log('[Socket.IO] Client disconnected:', {
@@ -244,7 +262,22 @@ app.prepare().then(() => {
       });
 
       if (roomId && userId) {
-        // TODO: 切断時にアクティブロックを自動解除する処理を追加
+        try {
+          // 切断時にアクティブロックを自動解除
+          const unlockedCount = await prisma.nodeLock.updateMany({
+            where: { userId, isActive: true },
+            data: { isActive: false, unlockedAt: new Date() }
+          });
+
+          if (unlockedCount.count > 0) {
+            console.log(`[Socket.IO] Auto-unlocked ${unlockedCount.count} nodes for user ${userId}`);
+            // すべてのノードのロック解除を通知（具体的なnodeIdは省略）
+            socket.to(roomId).emit('user-unlocked-all', { userId });
+          }
+        } catch (error) {
+          console.error('[Socket.IO] Error during auto-unlock:', error);
+        }
+
         socket.to(roomId).emit('user-left', { userId, socketId: socket.id });
       }
     });
