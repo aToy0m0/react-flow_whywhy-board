@@ -165,7 +165,7 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
 
   // 自動保存関数（既存のsaveRemote APIを使用）
   const autoSaveToRemote = useCallback(async () => {
-    // リアルタイムモード時は REST自動保存をスキップ
+    // リアルタイムモード時は REST自動保存をスキップ（ただしforce=trueで強制実行可能）
     if (useRealtime) {
       console.log('[AutoSave] Skipped - realtime mode active');
       return;
@@ -201,6 +201,29 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
       }
     }, 100); // 100msの短い遅延で即時保存
   }, [nodes, edges, boardId, apiEndpoint, useRealtime]);
+
+  // エッジ専用保存関数（リアルタイムモードでも動作）
+  const saveEdgesToRemote = useCallback(async () => {
+    try {
+      console.log('[EdgeSave] Saving edges to remote...');
+      const graph = serializeGraph(nodes, edges);
+      const headers: HeadersInit = { 'Content-Type': 'application/json' };
+      const res = await fetch(apiEndpoint, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({
+          graph,
+          name: boardId,
+        }),
+      });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      }
+      console.log('[EdgeSave] Success');
+    } catch (error) {
+      console.error('[EdgeSave] Failed:', error);
+    }
+  }, [nodes, edges, boardId, apiEndpoint]);
 
   // MARK: 接続ドラッグ中の接続元ノードIDを保持
   const connectingFrom = useRef<string | null>(null);
@@ -452,7 +475,7 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
         data: {
-          label: "",
+          label: type === 'why' ? 'なぜ？' : type === 'cause' ? '原因' : '対策',
           type,
           adopted,
           boardId,
@@ -484,6 +507,9 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
         )
       );
 
+      // エッジ作成後に保存（リアルタイムモードでもエッジ情報を永続化）
+      setTimeout(() => saveEdgesToRemote(), 100);
+
       // 新規ノード作成時はensure付きでロック要求
       if (socketLockNode) {
         socketLockNode(childId, {
@@ -498,7 +524,7 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
       // 整列: 追加後に同一親の子を等間隔に再配置
       setTimeout(() => layoutChildren(parentId), 0);
     },
-    [boardId, enhanceNode, getChildren, layoutChildren, nodes, setEdges, setNodes, socketLockNode]
+    [boardId, enhanceNode, getChildren, layoutChildren, nodes, setEdges, setNodes, socketLockNode, saveEdgesToRemote]
   );
 
   useEffect(() => {
@@ -509,11 +535,14 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
   const onConnect = useCallback(
     (connection: Connection) => {
       if (!connection.source || !connection.target) return;
-      
+
       setEdges((eds) => addEdge({ ...connection, type: EDGE_TYPE, markerEnd: { type: MarkerType.ArrowClosed } }, eds));
       didConnectRef.current = true;
+
+      // エッジ作成後も自動保存（リアルタイムモードでもエッジ情報を永続化）
+      saveEdgesToRemote();
     },
-    [setEdges]
+    [setEdges, saveEdgesToRemote]
   );
 
   // MARK: XYFlow — 右ハンドルからのドラッグ開始。接続元の nodeId を保持
