@@ -67,7 +67,7 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
   const { lockNode, unlockNode } = useNodeLock();
 
   // リアルタイム状態管理
-  const [useRealtime, setUseRealtime] = useState(false);
+  const [useRealtime, setUseRealtime] = useState(true);
 
   // 自動保存用のデバウンスタイマー
   const autoSaveTimer = useRef<NodeJS.Timeout | null>(null);
@@ -483,12 +483,22 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
           eds
         )
       );
-      
+
+      // 新規ノード作成時はensure付きでロック要求
+      if (socketLockNode) {
+        socketLockNode(childId, {
+          content: newNode.data.label,
+          position: { x: newNode.position.x, y: newNode.position.y },
+          category: newNode.data.type === 'root' ? 'Root' : 'Why',
+          depth: 0,
+          tags: []
+        });
+      }
 
       // 整列: 追加後に同一親の子を等間隔に再配置
       setTimeout(() => layoutChildren(parentId), 0);
     },
-    [boardId, enhanceNode, getChildren, layoutChildren, nodes, setEdges, setNodes]
+    [boardId, enhanceNode, getChildren, layoutChildren, nodes, setEdges, setNodes, socketLockNode]
   );
 
   useEffect(() => {

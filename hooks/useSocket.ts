@@ -125,10 +125,16 @@ export function useSocket(options: UseSocketOptions) {
     };
   }, [tenantId, boardKey, userId]); // ← 不要に増やさない
 
-  // ノードロック要求
-  const lockNode = (nodeId: string) => {
+  // ノードロック要求（ensure+lock原子化）
+  const lockNode = (nodeId: string, ensure?: {
+    content?: string;
+    position?: { x: number; y: number };
+    category?: string;
+    depth?: number;
+    tags?: string[];
+  }) => {
     if (socketRef.current?.connected) {
-      socketRef.current.emit('lock-node', { nodeId });
+      socketRef.current.emit('lock-node', { nodeId, ensure });
     }
   };
 

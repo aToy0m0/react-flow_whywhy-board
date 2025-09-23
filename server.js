@@ -96,8 +96,8 @@ app.prepare().then(() => {
       socket.to(roomId).emit('user-joined', { userId, socketId: socket.id });
     });
 
-    // ノードロック要求
-    socket.on('lock-node', async ({ nodeId }) => {
+    // ノードロック要求（ensure+lock原子化）
+    socket.on('lock-node', async ({ nodeId, ensure }) => {
       const { roomId, userId, tenantId, boardKey } = socket.data;
       if (!roomId || !userId) {
         socket.emit('lock-error', { nodeId, error: 'Not joined to any board' });
@@ -106,15 +106,18 @@ app.prepare().then(() => {
 
       try {
         // テナントIDの解決（スラグ→ID変換）
+        console.log('[Socket.IO] Looking up tenant:', { tenantId });
         const tenant = await prisma.tenant.findUnique({
           where: { slug: tenantId },
           select: { id: true }
         });
 
         if (!tenant) {
+          console.log('[Socket.IO] Tenant not found:', { tenantId });
           socket.emit('lock-error', { nodeId, error: 'Tenant not found' });
           return;
         }
+        console.log('[Socket.IO] Found tenant:', { slug: tenantId, id: tenant.id });
 
         // ボードの取得または作成
         let board = await prisma.board.findUnique({
@@ -154,80 +157,80 @@ app.prepare().then(() => {
           console.log('[Socket.IO] Created board and root node:', { boardId: board.id, boardKey });
         }
 
-        let node = await prisma.node.findFirst({
-          where: { boardId: board.id, OR: [{ id: nodeId }, { nodeKey: nodeId }] },
-          select: { id: true },
-        });
+        // ensure+lockを1トランザクションで原子的実行
+        const result = await prisma.$transaction(async (tx) => {
+          console.log('[Socket.IO] Searching for node:', { boardId: board.id, nodeId });
+          let node = await tx.node.findFirst({
+            where: { boardId: board.id, OR: [{ id: nodeId }, { nodeKey: nodeId }] },
+            select: { id: true, nodeKey: true },
+          });
 
-        // ノードが見つからなければ作成（新規ノード対応）
-        if (!node) {
-          try {
-            node = await prisma.node.create({
+          console.log('[Socket.IO] Node search result:', { found: !!node, nodeId, ensure: !!ensure });
+          if (!node) {
+            if (!ensure) {
+              throw new Error('Node not found (no ensure payload)');
+            }
+            // ensureデータで正しい初期値を作成
+            node = await tx.node.create({
               data: {
                 boardId: board.id,
-                nodeKey: nodeId,
-                content: '',
-                x: 0,
-                y: 0,
                 tenantId: tenant.id,
-                category: 'Why',
-                depth: 0,
-                tags: [],
+                nodeKey: nodeId,
+                content: ensure.content ?? '',
+                x: ensure.position?.x ?? 0,
+                y: ensure.position?.y ?? 0,
+                category: ensure.category ?? 'Why',
+                depth: ensure.depth ?? 0,
+                tags: ensure.tags ?? [],
                 prevNodes: [],
                 nextNodes: [],
                 adopted: false
               },
-              select: { id: true }
+              select: { id: true, nodeKey: true }
             });
-            console.log('[Socket.IO] Created stub node for lock:', { nodeId, dbId: node.id });
-          } catch (createError) {
-            console.error('[Socket.IO] Failed to create stub node:', createError);
-            socket.emit('lock-error', { nodeId, error: 'Failed to create node' });
-            return;
           }
-        }
 
-        // 既存ロック確認
-        const existing = await prisma.nodeLock.findFirst({
-          where: { nodeId: node.id, isActive: true },
-          include: { user: { select: { id: true, email: true } } },
+          // ロック処理
+          const existing = await tx.nodeLock.findFirst({
+            where: { nodeId: node.id, isActive: true },
+            include: { user: { select: { id: true, email: true } } },
+          });
+
+          if (existing && existing.userId !== userId) {
+            return { kind: 'conflict', node, existing };
+          }
+
+          const lock = existing
+            ? await tx.nodeLock.update({
+                where: { id: existing.id },
+                data: { lockedAt: new Date(), isActive: true },
+                include: { user: { select: { id: true, email: true } } }
+              })
+            : await tx.nodeLock.create({
+                data: { nodeId: node.id, userId, isActive: true },
+                include: { user: { select: { id: true, email: true } } }
+              });
+
+          return { kind: 'ok', node, lock };
         });
 
-        if (existing) {
-          if (existing.userId === userId) {
-            // 自分のロックは延長
-            const updated = await prisma.nodeLock.update({
-              where: { id: existing.id },
-              data: { lockedAt: new Date() },
-              include: { user: { select: { id: true, email: true } } },
-            });
-            io.to(roomId).emit('node-locked', {
-              nodeId,
-              userId,
-              userName: updated.user.email,
-              lockedAt: updated.lockedAt,
-            });
-            return;
-          }
-          socket.emit('lock-error', { nodeId, error: 'Node is locked by another user', lockedBy: existing.user });
-          return;
+        if (result.kind === 'conflict') {
+          return socket.emit('lock-error', {
+            nodeId,
+            error: 'Node is locked by another user',
+            lockedBy: result.existing.user
+          });
         }
-
-        // 新規ロック
-        const created = await prisma.nodeLock.create({
-          data: { nodeId: node.id, userId, isActive: true },
-          include: { user: { select: { id: true, email: true } } },
-        });
 
         io.to(roomId).emit('node-locked', {
           nodeId,
           userId,
-          userName: created.user.email,
-          lockedAt: created.lockedAt,
+          userName: result.lock.user.email,
+          lockedAt: result.lock.lockedAt,
         });
       } catch (e) {
-        console.error(e);
-        socket.emit('lock-error', { nodeId, error: 'Internal server error' });
+        console.error('[Socket.IO] Lock-node error:', e);
+        socket.emit('lock-error', { nodeId, error: e?.message || 'Internal server error' });
       }
     });
 

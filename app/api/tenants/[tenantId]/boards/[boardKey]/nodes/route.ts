@@ -31,6 +31,7 @@ interface SerializedGraph {
 interface PutPayload {
   name?: string;
   graph: SerializedGraph;
+  clearEdges?: boolean;
 }
 
 const DEFAULT_BOARD_NAME = 'Unnamed Board';
@@ -174,44 +175,47 @@ async function ensureTenant(tenantSlug: string) {
 }
 
 async function ensureBoard(tenantId: string, boardKey: string, name?: string) {
-  const board = await prisma.board.upsert({
-    where: { tenantId_boardKey: { tenantId, boardKey } },
-    update: {
-      name: name ?? DEFAULT_BOARD_NAME,
-    },
-    create: {
-      tenantId,
-      boardKey,
-      name: name ?? DEFAULT_BOARD_NAME,
-    },
-  });
-
-  // ボード作成後、rootノードが存在しない場合は作成
-  const existingNodes = await prisma.node.count({
-    where: { boardId: board.id }
-  });
-
-  if (existingNodes === 0) {
-    await prisma.node.create({
-      data: {
-        boardId: board.id,
+  // 1回のトランザクションでボードとrootノードを原子的に作成
+  return await prisma.$transaction(async (tx) => {
+    const board = await tx.board.upsert({
+      where: { tenantId_boardKey: { tenantId, boardKey } },
+      update: {
+        name: name ?? DEFAULT_BOARD_NAME,
+      },
+      create: {
         tenantId,
-        nodeKey: 'root',
-        content: '',
-        category: NodeCategory.Root,
-        depth: 0,
-        tags: [],
-        prevNodes: [],
-        nextNodes: [],
-        x: 250,
-        y: 100,
-        adopted: false
-      }
+        boardKey,
+        name: name ?? DEFAULT_BOARD_NAME,
+      },
     });
-    console.log('[API] Created root node for new board:', { boardId: board.id, boardKey });
-  }
 
-  return board;
+    // rootノードの存在確認とupsert
+    const existingRootNode = await tx.node.findFirst({
+      where: { boardId: board.id, nodeKey: 'root' }
+    });
+
+    if (!existingRootNode) {
+      await tx.node.create({
+        data: {
+          boardId: board.id,
+          tenantId,
+          nodeKey: 'root',
+          content: '',
+          category: NodeCategory.Root,
+          depth: 0,
+          tags: [],
+          prevNodes: [],
+          nextNodes: [],
+          x: 250,
+          y: 100,
+          adopted: false
+        }
+      });
+      console.log('[API] Created root node for new board:', { boardId: board.id, boardKey });
+    }
+
+    return board;
+  });
 }
 
 export async function GET(
@@ -223,22 +227,13 @@ export async function GET(
 
   console.log('[API][GET /nodes] request', { tenantSlug, boardKey });
 
-  const tenant = await prisma.tenant.findUnique({ where: { slug: tenantSlug } });
+  const tenant = await ensureTenant(tenantSlug);
   if (!tenant) {
-    console.log('[API][GET /nodes] tenant not found', { tenantSlug });
+    console.log('[API][GET /nodes] failed to ensure tenant', { tenantSlug });
     return NextResponse.json({ board: null, graph: { nodes: [], edges: [] } });
   }
 
-  const board = await prisma.board.findUnique({
-    where: { tenantId_boardKey: { tenantId: tenant.id, boardKey } },
-  });
-
-  if (!board) {
-    return NextResponse.json({
-      board: null,
-      graph: { nodes: [], edges: [] },
-    });
-  }
+  const board = await ensureBoard(tenant.id, boardKey);
 
   const nodes = await prisma.node.findMany({
     where: { boardId: board.id },
@@ -263,6 +258,11 @@ export async function GET(
     nextNodes: node.nextNodes,
     // uiHeight: node.uiHeight, // TODO: マイグレーション後に有効化
   })));
+
+  console.log('[API][GET /nodes] returning graph', {
+    nodeCount: graph.nodes.length,
+    edgeCount: graph.edges.length,
+  });
 
   return NextResponse.json({
     board: {
@@ -327,6 +327,9 @@ export async function PUT(
   });
   const depthMap = calcDepths(nodes, edges);
 
+  // エッジ処理の判定
+  const shouldTouchEdges = Array.isArray(edges) ? true : payload.clearEdges === true;
+
   await prisma.$transaction(async (tx) => {
     // 既存ノードの編集履歴を保存
     const existingNodes = await tx.node.findMany({
@@ -371,9 +374,17 @@ export async function PUT(
       return;
     }
 
+    // ノードデータ作成（エッジ処理を条件分岐）
     const nodeData = nodes.map((node) => {
-      const prevNodes = edges.filter((e) => e.target === node.id).map((e) => e.source);
-      const nextNodes = edges.filter((e) => e.source === node.id).map((e) => e.target);
+      let prevNodes: string[] = [];
+      let nextNodes: string[] = [];
+
+      if (shouldTouchEdges) {
+        // エッジから prev/next構築
+        prevNodes = edges.filter((e) => e.target === node.id).map((e) => e.source);
+        nextNodes = edges.filter((e) => e.source === node.id).map((e) => e.target);
+      }
+      // shouldTouchEdges=falseの場合、既存のprev/nextは保持（空配列で初期化）
 
       return {
         id: randomUUID(),
