@@ -105,14 +105,53 @@ app.prepare().then(() => {
       }
 
       try {
-        const board = await prisma.board.findUnique({
-          where: { tenantId_boardKey: { tenantId, boardKey } },
+        // テナントIDの解決（スラグ→ID変換）
+        const tenant = await prisma.tenant.findUnique({
+          where: { slug: tenantId },
+          select: { id: true }
+        });
+
+        if (!tenant) {
+          socket.emit('lock-error', { nodeId, error: 'Tenant not found' });
+          return;
+        }
+
+        // ボードの取得または作成
+        let board = await prisma.board.findUnique({
+          where: { tenantId_boardKey: { tenantId: tenant.id, boardKey } },
           select: { id: true },
         });
 
         if (!board) {
-          socket.emit('lock-error', { nodeId, error: 'Board not found' });
-          return;
+          // ボードが存在しない場合は作成
+          board = await prisma.board.create({
+            data: {
+              tenantId: tenant.id,
+              boardKey,
+              name: boardKey
+            },
+            select: { id: true }
+          });
+
+          // rootノードも作成
+          await prisma.node.create({
+            data: {
+              boardId: board.id,
+              tenantId: tenant.id,
+              nodeKey: 'root',
+              content: '',
+              category: 'Root',
+              depth: 0,
+              tags: [],
+              prevNodes: [],
+              nextNodes: [],
+              x: 250,
+              y: 100,
+              adopted: false
+            }
+          });
+
+          console.log('[Socket.IO] Created board and root node:', { boardId: board.id, boardKey });
         }
 
         let node = await prisma.node.findFirst({
@@ -130,7 +169,7 @@ app.prepare().then(() => {
                 content: '',
                 x: 0,
                 y: 0,
-                tenantId,
+                tenantId: tenant.id,
                 category: 'Why',
                 depth: 0,
                 tags: [],
@@ -201,8 +240,19 @@ app.prepare().then(() => {
       }
 
       try {
+        // テナントIDの解決（スラグ→ID変換）
+        const tenant = await prisma.tenant.findUnique({
+          where: { slug: tenantId },
+          select: { id: true }
+        });
+
+        if (!tenant) {
+          socket.emit('unlock-error', { nodeId, error: 'Tenant not found' });
+          return;
+        }
+
         const board = await prisma.board.findUnique({
-          where: { tenantId_boardKey: { tenantId, boardKey } },
+          where: { tenantId_boardKey: { tenantId: tenant.id, boardKey } },
           select: { id: true },
         });
 
@@ -247,9 +297,20 @@ app.prepare().then(() => {
       if (!roomId || !tenantId || !boardKey) return;
 
       try {
-        // 1) ボード特定（tenantId + boardKey）
+        // 1) テナントIDの解決（スラグ→ID変換）
+        const tenant = await prisma.tenant.findUnique({
+          where: { slug: tenantId },
+          select: { id: true }
+        });
+
+        if (!tenant) {
+          socket.emit('node-save-error', { nodeId, error: 'Tenant not found' });
+          return;
+        }
+
+        // 2) ボード特定（tenantId + boardKey）
         const board = await prisma.board.findUnique({
-          where: { tenantId_boardKey: { tenantId, boardKey } },
+          where: { tenantId_boardKey: { tenantId: tenant.id, boardKey } },
           select: { id: true },
         });
         if (!board) {
@@ -257,7 +318,7 @@ app.prepare().then(() => {
           return;
         }
 
-        // 2) ノード特定（DBの id OR nodeKey のどちらでもヒット）
+        // 3) ノード特定（DBの id OR nodeKey のどちらでもヒット）
         const node = await prisma.node.findFirst({
           where: {
             boardId: board.id,
