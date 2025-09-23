@@ -109,7 +109,13 @@ app.prepare().then(() => {
           where: { tenantId_boardKey: { tenantId, boardKey } },
           select: { id: true },
         });
-        let node = board && await prisma.node.findFirst({
+
+        if (!board) {
+          socket.emit('lock-error', { nodeId, error: 'Board not found' });
+          return;
+        }
+
+        let node = await prisma.node.findFirst({
           where: { boardId: board.id, OR: [{ id: nodeId }, { nodeKey: nodeId }] },
           select: { id: true },
         });
@@ -199,7 +205,13 @@ app.prepare().then(() => {
           where: { tenantId_boardKey: { tenantId, boardKey } },
           select: { id: true },
         });
-        let node = board && await prisma.node.findFirst({
+
+        if (!board) {
+          socket.emit('unlock-error', { nodeId, error: 'Board not found' });
+          return;
+        }
+
+        let node = await prisma.node.findFirst({
           where: { boardId: board.id, OR: [{ id: nodeId }, { nodeKey: nodeId }] },
           select: { id: true },
         });
@@ -307,7 +319,7 @@ app.prepare().then(() => {
         socket.to(roomId).emit('node-updated', {
           nodeId: publicId,
           content: updated.content,
-          position: { x: updated.x, y: updated.y },
+          position: { x: updated.x, y: updated.y }, // 常に{x,y}形式
           userId,
           savedAt: new Date().toISOString(),
         });

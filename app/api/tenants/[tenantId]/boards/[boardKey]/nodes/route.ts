@@ -174,7 +174,7 @@ async function ensureTenant(tenantSlug: string) {
 }
 
 async function ensureBoard(tenantId: string, boardKey: string, name?: string) {
-  return prisma.board.upsert({
+  const board = await prisma.board.upsert({
     where: { tenantId_boardKey: { tenantId, boardKey } },
     update: {
       name: name ?? DEFAULT_BOARD_NAME,
@@ -185,6 +185,33 @@ async function ensureBoard(tenantId: string, boardKey: string, name?: string) {
       name: name ?? DEFAULT_BOARD_NAME,
     },
   });
+
+  // ボード作成後、rootノードが存在しない場合は作成
+  const existingNodes = await prisma.node.count({
+    where: { boardId: board.id }
+  });
+
+  if (existingNodes === 0) {
+    await prisma.node.create({
+      data: {
+        boardId: board.id,
+        tenantId,
+        nodeKey: 'root',
+        content: '',
+        category: NodeCategory.Root,
+        depth: 0,
+        tags: [],
+        prevNodes: [],
+        nextNodes: [],
+        x: 250,
+        y: 100,
+        adopted: false
+      }
+    });
+    console.log('[API] Created root node for new board:', { boardId: board.id, boardKey });
+  }
+
+  return board;
 }
 
 export async function GET(

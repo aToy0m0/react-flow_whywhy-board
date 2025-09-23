@@ -7,7 +7,7 @@ interface UseSocketOptions {
   userId: string;
   onNodeLocked?: (data: { nodeId: string; userId: string; userName: string; lockedAt: string }) => void;
   onNodeUnlocked?: (data: { nodeId: string; userId: string }) => void;
-  onNodeUpdated?: (data: { nodeId: string; content: string; position?: { x: number; y: number }; userId: string }) => void;
+  onNodeUpdated?: (data: { nodeId: string; content: string; position: { x: number; y: number }; userId: string }) => void;
   onUserJoined?: (data: { userId: string; socketId: string }) => void;
   onUserLeft?: (data: { userId: string; socketId: string }) => void;
 }

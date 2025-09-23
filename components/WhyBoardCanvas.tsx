@@ -85,10 +85,14 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
       unlockNode(data.nodeId);
     },
     onNodeUpdated: (data) => {
-      // 他のユーザーからのノード更新を反映
+      // 他のユーザーからのノード更新を反映（content + position）
       setNodes(nds => nds.map(n =>
         n.id === data.nodeId
-          ? { ...n, data: { ...n.data, label: data.content } }
+          ? {
+              ...n,
+              data: { ...n.data, label: data.content },
+              position: { x: data.position.x, y: data.position.y }
+            }
           : n
       ));
       setUseRealtime(true); // ノード更新受信時にリアルタイムモード開始
