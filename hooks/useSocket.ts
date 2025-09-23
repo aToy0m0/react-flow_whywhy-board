@@ -91,6 +91,12 @@ export function useSocket(options: UseSocketOptions) {
       s.on('user-joined', (d) => joinedRef.current?.(d));
       s.on('user-left', (d) => leftRef.current?.(d));
 
+      // join確認でリアルタイムモード確実化
+      s.on('joined', ({ roomId, userId }) => {
+        console.log('[Socket.IO] Joined confirmed:', { roomId, userId });
+        // この処理はuseSocketの外で実装される予定
+      });
+
       s.on('lock-error', (data) => {
         console.error('[Socket.IO] Lock error:', data);
         setError(`Lock error: ${data.error}`);
@@ -150,6 +156,7 @@ export function useSocket(options: UseSocketOptions) {
     error,
     lockNode,
     unlockNode,
-    notifyNodeUpdate
+    notifyNodeUpdate,
+    socket: socketRef.current
   };
 }

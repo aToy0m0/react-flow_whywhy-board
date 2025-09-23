@@ -49,7 +49,12 @@ app.prepare().then(() => {
 
   // Socket.IOの名前空間とイベント処理
   io.on('connection', (socket) => {
-    console.log('[Socket.IO] Client connected:', socket.id);
+    console.log('[SOCK] conn', {
+      id: socket.id,
+      hs: socket.handshake.auth,
+      q: socket.handshake.query,
+      data: socket.data
+    });
 
     // ハンドシェイクでデータがある場合は自動参加
     if (socket.data?.roomId) {
@@ -84,6 +89,9 @@ app.prepare().then(() => {
         userId
       });
 
+      // ack応答でリアルタイムモード確実化
+      socket.emit('joined', { roomId, userId: socket.data.userId });
+
       // 他のユーザーに参加を通知
       socket.to(roomId).emit('user-joined', { userId, socketId: socket.id });
     });
@@ -101,13 +109,37 @@ app.prepare().then(() => {
           where: { tenantId_boardKey: { tenantId, boardKey } },
           select: { id: true },
         });
-        const node = board && await prisma.node.findFirst({
+        let node = board && await prisma.node.findFirst({
           where: { boardId: board.id, OR: [{ id: nodeId }, { nodeKey: nodeId }] },
           select: { id: true },
         });
+
+        // ノードが見つからなければ作成（新規ノード対応）
         if (!node) {
-          socket.emit('lock-error', { nodeId, error: 'Node not found' });
-          return;
+          try {
+            node = await prisma.node.create({
+              data: {
+                boardId: board.id,
+                nodeKey: nodeId,
+                content: '',
+                x: 0,
+                y: 0,
+                tenantId,
+                category: 'Why',
+                depth: 0,
+                tags: [],
+                prevNodes: [],
+                nextNodes: [],
+                adopted: false
+              },
+              select: { id: true }
+            });
+            console.log('[Socket.IO] Created stub node for lock:', { nodeId, dbId: node.id });
+          } catch (createError) {
+            console.error('[Socket.IO] Failed to create stub node:', createError);
+            socket.emit('lock-error', { nodeId, error: 'Failed to create node' });
+            return;
+          }
         }
 
         // 既存ロック確認
@@ -167,11 +199,14 @@ app.prepare().then(() => {
           where: { tenantId_boardKey: { tenantId, boardKey } },
           select: { id: true },
         });
-        const node = board && await prisma.node.findFirst({
+        let node = board && await prisma.node.findFirst({
           where: { boardId: board.id, OR: [{ id: nodeId }, { nodeKey: nodeId }] },
           select: { id: true },
         });
+
+        // ノードが見つからなければ何もしない（ロック解除は冪等）
         if (!node) {
+          console.log('[Socket.IO] Node not found for unlock (idempotent):', { nodeId });
           socket.emit('unlock-error', { nodeId, error: 'Node not found' });
           return;
         }

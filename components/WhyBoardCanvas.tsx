@@ -73,7 +73,7 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
   const autoSaveTimer = useRef<NodeJS.Timeout | null>(null);
 
   // Socket.IO統合（同時編集用）
-  const { lockNode: socketLockNode, unlockNode: socketUnlockNode } = useSocket({
+  const { lockNode: socketLockNode, unlockNode: socketUnlockNode, socket } = useSocket({
     tenantId: tenantSlug,
     boardKey: boardId,
     userId: session?.user?.id || 'anonymous',
@@ -104,6 +104,23 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
       setTimeout(() => setUseRealtime(false), 5000);
     }
   });
+
+  // joinedイベントでリアルタイムモード確実化
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleJoined = ({ roomId, userId }: { roomId: string; userId: string }) => {
+      console.log('[WhyBoard] Socket joined confirmed:', { roomId, userId });
+      setUseRealtime(true);
+    };
+
+    socket.on('joined', handleJoined);
+
+    return () => {
+      socket.off('joined', handleJoined);
+    };
+  }, [socket]);
+
   const [nodes, setNodes, onNodesChange] = useNodesState<RFNode<WhyNodeData>>([
     {
       id: "root",
