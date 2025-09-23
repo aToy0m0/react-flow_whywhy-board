@@ -29,105 +29,95 @@ export function useSocket(options: UseSocketOptions) {
   const [error, setError] = useState<string | null>(null);
   const reconnectAttempts = useRef(0);
 
+  // ハンドラをrefに退避（依存配列から外すため）
+  const lockedRef = useRef(onNodeLocked);
+  const unlockedRef = useRef(onNodeUnlocked);
+  const updatedRef = useRef(onNodeUpdated);
+  const joinedRef = useRef(onUserJoined);
+  const leftRef = useRef(onUserLeft);
+
+  useEffect(() => { lockedRef.current = onNodeLocked; }, [onNodeLocked]);
+  useEffect(() => { unlockedRef.current = onNodeUnlocked; }, [onNodeUnlocked]);
+  useEffect(() => { updatedRef.current = onNodeUpdated; }, [onNodeUpdated]);
+  useEffect(() => { joinedRef.current = onUserJoined; }, [onUserJoined]);
+  useEffect(() => { leftRef.current = onUserLeft; }, [onUserLeft]);
+
   useEffect(() => {
-    // 既存の接続があれば切断
-    if (socketRef.current) {
-      socketRef.current.disconnect();
-      socketRef.current = null;
-    }
-    // Socket.IO接続
-    const socket = io({
-      transports: ['polling', 'websocket'], // pollingを先に試す
-      reconnection: true,
-      reconnectionDelay: 2000,
-      reconnectionAttempts: 5,
-      timeout: 10000,
-      forceNew: true,
-      upgrade: true
-    });
+    if (typeof window === 'undefined') return;
+    if (!tenantId || !boardKey || !userId) return;
 
-    socketRef.current = socket;
-
-    socket.on('connect', () => {
-      console.log('[Socket.IO] Connected:', socket.id, { tenantId, boardKey, userId });
-      setIsConnected(true);
-      setError(null);
-      reconnectAttempts.current = 0;
-
-      // ボードルームに参加
-      socket.emit('join-board', {
-        tenantId,
-        boardKey,
-        userId
+    // 既存socketがあれば使う（作り直さない）
+    if (!socketRef.current) {
+      socketRef.current = io({
+        transports: ['websocket'], // まずWSだけで安定化を確認
+        reconnection: true,
+        reconnectionDelay: 1500,
+        reconnectionAttempts: 10,
+        auth: { tenantId, boardKey, userId }, // ハンドシェイクで渡す
+        timeout: 10000,
       });
-    });
 
-    socket.on('disconnect', () => {
-      console.log('[Socket.IO] Disconnected');
-      setIsConnected(false);
-    });
+      const s = socketRef.current;
+      const roomId = `${tenantId}:${boardKey}`;
 
-    socket.on('connect_error', (err) => {
-      console.error('[Socket.IO] Connection error:', err);
-      setError(err.message);
-      setIsConnected(false);
-    });
+      // connect後にjoin（ここが重要）
+      const join = () => s.emit('join-board', {
+        tenantId, boardKey, userId, roomId
+      });
 
-    // ノードロックイベント
-    socket.on('node-locked', (data) => {
-      console.log('[Socket.IO] Node locked:', data);
-      onNodeLocked?.(data);
-    });
+      s.on('connect', () => {
+        console.log('[Socket.IO] Connected:', s.id, { tenantId, boardKey, userId });
+        setIsConnected(true);
+        setError(null);
+        reconnectAttempts.current = 0;
+        join();
+      });
 
-    socket.on('node-unlocked', (data) => {
-      console.log('[Socket.IO] Node unlocked:', data);
-      onNodeUnlocked?.(data);
-    });
+      s.on('disconnect', () => {
+        console.log('[Socket.IO] Disconnected');
+        setIsConnected(false);
+      });
 
-    socket.on('lock-error', (data) => {
-      console.error('[Socket.IO] Lock error:', data);
-      setError(`Lock error: ${data.error}`);
-    });
+      s.on('connect_error', (err) => {
+        console.error('[Socket.IO] Connection error:', err);
+        setError(err.message);
+        setIsConnected(false);
+      });
 
-    socket.on('unlock-error', (data) => {
-      console.error('[Socket.IO] Unlock error:', data);
-      setError(`Unlock error: ${data.error}`);
-    });
+      // イベントハンドラをref経由に変更
+      s.on('node-locked', (d) => lockedRef.current?.(d));
+      s.on('node-unlocked', (d) => unlockedRef.current?.(d));
+      s.on('node-updated', (d) => updatedRef.current?.(d));
+      s.on('user-joined', (d) => joinedRef.current?.(d));
+      s.on('user-left', (d) => leftRef.current?.(d));
 
-    // ノード更新イベント
-    socket.on('node-updated', (data) => {
-      console.log('[Socket.IO] Node updated:', data);
-      onNodeUpdated?.(data);
-    });
+      s.on('lock-error', (data) => {
+        console.error('[Socket.IO] Lock error:', data);
+        setError(`Lock error: ${data.error}`);
+      });
 
-    socket.on('node-saved', (data) => {
-      console.log('[Socket.IO] Node saved:', data);
-    });
+      s.on('unlock-error', (data) => {
+        console.error('[Socket.IO] Unlock error:', data);
+        setError(`Unlock error: ${data.error}`);
+      });
 
-    socket.on('node-save-error', (data) => {
-      console.error('[Socket.IO] Node save error:', data);
-      setError(`Save error: ${data.error}`);
-    });
+      s.on('node-saved', (data) => {
+        console.log('[Socket.IO] Node saved:', data);
+      });
 
-    // ユーザー参加/離脱イベント
-    socket.on('user-joined', (data) => {
-      console.log('[Socket.IO] User joined:', data);
-      onUserJoined?.(data);
-    });
-
-    socket.on('user-left', (data) => {
-      console.log('[Socket.IO] User left:', data);
-      onUserLeft?.(data);
-    });
+      s.on('node-save-error', (data) => {
+        console.error('[Socket.IO] Node save error:', data);
+        setError(`Save error: ${data.error}`);
+      });
+    }
 
     return () => {
-      // 未完了のタイマーをクリア
-      debounceTimers.current.forEach(timer => clearTimeout(timer));
-      debounceTimers.current.clear();
-
-      socket.disconnect();
+      // 依存が変わっても即破棄しない（チラつきを防ぐ）
+      // socketRef.current?.off(...); // 各イベントoff
+      // socketRef.current?.disconnect();
+      // socketRef.current = null;
     };
-  }, [tenantId, boardKey, userId, onNodeLocked, onNodeUnlocked, onNodeUpdated, onUserJoined, onUserLeft]);
+  }, [tenantId, boardKey, userId]); // ← 不要に増やさない
 
   // ノードロック要求
   const lockNode = (nodeId: string) => {
@@ -143,33 +133,16 @@ export function useSocket(options: UseSocketOptions) {
     }
   };
 
-  // デバウンス用タイマー管理
-  const debounceTimers = useRef<Map<string, NodeJS.Timeout>>(new Map());
-
-  // ノード更新通知（デバウンス機能付き）
+  // ノード更新通知（シンプル版）
   const notifyNodeUpdate = (nodeId: string, content: string, position?: { x: number; y: number }) => {
-    if (!socketRef.current?.connected) return;
-
-    // 既存のタイマーをクリア
-    const existingTimer = debounceTimers.current.get(nodeId);
-    if (existingTimer) {
-      clearTimeout(existingTimer);
+    if (socketRef.current?.connected) {
+      console.log('[Socket.IO] Sending node update:', { nodeId, content });
+      socketRef.current.emit('node-updated', {
+        nodeId,
+        content,
+        position
+      });
     }
-
-    // 新しいタイマーを設定（1秒後に送信）
-    const timer = setTimeout(() => {
-      if (socketRef.current?.connected) {
-        console.log('[Socket.IO] Sending node update:', { nodeId, content });
-        socketRef.current.emit('node-updated', {
-          nodeId,
-          content,
-          position
-        });
-      }
-      debounceTimers.current.delete(nodeId);
-    }, 1000);
-
-    debounceTimers.current.set(nodeId, timer);
   };
 
   return {

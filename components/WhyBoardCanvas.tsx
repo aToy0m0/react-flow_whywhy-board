@@ -66,16 +66,20 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
   const session = useSession()?.data;
   const { lockNode, unlockNode } = useNodeLock();
 
+  // リアルタイム状態管理
+  const [useRealtime, setUseRealtime] = useState(false);
+
   // 自動保存用のデバウンスタイマー
   const autoSaveTimer = useRef<NodeJS.Timeout | null>(null);
 
-  // Socket.IO統合（同時編集用、現在は無効化）
+  // Socket.IO統合（同時編集用）
   const { lockNode: socketLockNode, unlockNode: socketUnlockNode } = useSocket({
     tenantId: tenantSlug,
     boardKey: boardId,
     userId: session?.user?.id || 'anonymous',
     onNodeLocked: (data) => {
       lockNode(data.nodeId, data.userId, data.userName, data.lockedAt);
+      setUseRealtime(true); // ロック取得時にリアルタイムモード開始
     },
     onNodeUnlocked: (data) => {
       unlockNode(data.nodeId);
@@ -87,6 +91,17 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
           ? { ...n, data: { ...n.data, label: data.content } }
           : n
       ));
+      setUseRealtime(true); // ノード更新受信時にリアルタイムモード開始
+    },
+    onUserJoined: (data) => {
+      console.log('[WhyBoard] User joined:', data);
+      setUseRealtime(true); // 他ユーザー参加時にリアルタイムモード開始
+    },
+    onUserLeft: (data) => {
+      console.log('[WhyBoard] User left:', data);
+      // 他にユーザーがいない場合はリアルタイムモード終了
+      // 簡易実装：しばらくしてからREST保存に戻す
+      setTimeout(() => setUseRealtime(false), 5000);
     }
   });
   const [nodes, setNodes, onNodesChange] = useNodesState<RFNode<WhyNodeData>>([
@@ -129,6 +144,12 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
 
   // 自動保存関数（既存のsaveRemote APIを使用）
   const autoSaveToRemote = useCallback(async () => {
+    // リアルタイムモード時は REST自動保存をスキップ
+    if (useRealtime) {
+      console.log('[AutoSave] Skipped - realtime mode active');
+      return;
+    }
+
     // 既存のタイマーをクリア
     if (autoSaveTimer.current) {
       clearTimeout(autoSaveTimer.current);
@@ -158,7 +179,7 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
         console.error('[AutoSave] Error:', error);
       }
     }, 100); // 100msの短い遅延で即時保存
-  }, [nodes, edges, boardId, apiEndpoint]);
+  }, [nodes, edges, boardId, apiEndpoint, useRealtime]);
 
   // MARK: 接続ドラッグ中の接続元ノードIDを保持
   const connectingFrom = useRef<string | null>(null);
@@ -561,7 +582,11 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
   }, [menuOpenFor, setNodes]);
 
   const loadRemoteFromServer = useCallback(async () => {
-    if (!mountedRef.current) return;
+    console.log('[WhyBoard] loadRemoteFromServer called', { mounted: mountedRef.current, apiEndpoint });
+    if (!mountedRef.current) {
+      console.log('[WhyBoard] loadRemoteFromServer:early return - not mounted');
+      return;
+    }
     setIsRemoteSyncing(true);
     try {
       console.debug('[WhyBoard] loadRemoteFromServer:start', { endpoint: apiEndpoint });
@@ -612,6 +637,7 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
   }, [apiEndpoint, boardId, rf, setEdges, setIsRemoteSyncing, setNodes, showToast]);
 
   useEffect(() => {
+    console.log('[WhyBoard] useEffect loadRemoteFromServer triggered');
     void loadRemoteFromServer();
   }, [loadRemoteFromServer]);
 

@@ -37,9 +37,35 @@ app.prepare().then(() => {
     pingInterval: 25000
   });
 
+  // ハンドシェイク認証ミドルウェア
+  io.use((socket, next) => {
+    const a = socket.handshake.auth || socket.handshake.query || {};
+    const { tenantId, boardKey, userId } = a;
+    if (tenantId && boardKey && userId) {
+      socket.data = { tenantId, boardKey, userId, roomId: `${tenantId}:${boardKey}` };
+    }
+    next();
+  });
+
   // Socket.IOの名前空間とイベント処理
   io.on('connection', (socket) => {
     console.log('[Socket.IO] Client connected:', socket.id);
+
+    // ハンドシェイクでデータがある場合は自動参加
+    if (socket.data?.roomId) {
+      socket.join(socket.data.roomId);
+      console.log('[Socket.IO] Auto-joined room from handshake:', {
+        socketId: socket.id,
+        roomId: socket.data.roomId,
+        userId: socket.data.userId
+      });
+
+      // 他のユーザーに参加を通知
+      socket.to(socket.data.roomId).emit('user-joined', {
+        userId: socket.data.userId,
+        socketId: socket.id
+      });
+    }
 
     // ボードルームに参加
     socket.on('join-board', (data) => {
@@ -205,28 +231,34 @@ app.prepare().then(() => {
           return;
         }
 
-        // 4) 履歴保存（before/after）
-        await prisma.nodeEdit.create({
-          data: {
-            nodeId: node.id,
-            userId,
-            action: 'update',
-            beforeData: { content: node.content, x: node.x, y: node.y },
-            afterData: {
-              content: typeof content === 'string' ? content : node.content,
-              x: position?.x ?? node.x,
-              y: position?.y ?? node.y,
-            },
-          },
-        });
+        // 4) パッチオブジェクト作成（空文字防止）
+        const patch = {};
+        if (content !== undefined && content !== '') patch.content = content;
+        if (position?.x != null && position?.y != null) {
+          patch.x = position.x;
+          patch.y = position.y;
+        }
 
-        // 5) ノード更新
-        const updated = await prisma.node.update({
-          where: { id: node.id },
-          data: {
-            ...(typeof content === 'string' ? { content } : {}),
-            ...(position ? { x: position.x, y: position.y } : {}),
-          },
+        // 5) 履歴保存とノード更新をトランザクションで実行
+        const updated = await prisma.$transaction(async (tx) => {
+          await tx.nodeEdit.create({
+            data: {
+              nodeId: node.id,
+              userId,
+              action: 'update',
+              beforeData: { content: node.content, x: node.x, y: node.y },
+              afterData: {
+                content: patch.content ?? node.content,
+                x: patch.x ?? node.x,
+                y: patch.y ?? node.y,
+              },
+            },
+          });
+
+          return await tx.node.update({
+            where: { id: node.id },
+            data: patch,
+          });
         });
 
         console.log('[Socket.IO] Node saved to DB:', {
@@ -263,16 +295,31 @@ app.prepare().then(() => {
 
       if (roomId && userId) {
         try {
-          // 切断時にアクティブロックを自動解除
-          const unlockedCount = await prisma.nodeLock.updateMany({
+          // 切断前にアクティブロック中のnodeIdを取得
+          const activeLocks = await prisma.nodeLock.findMany({
             where: { userId, isActive: true },
-            data: { isActive: false, unlockedAt: new Date() }
+            include: { node: { select: { id: true, nodeKey: true } } }
           });
 
-          if (unlockedCount.count > 0) {
-            console.log(`[Socket.IO] Auto-unlocked ${unlockedCount.count} nodes for user ${userId}`);
-            // すべてのノードのロック解除を通知（具体的なnodeIdは省略）
-            socket.to(roomId).emit('user-unlocked-all', { userId });
+          if (activeLocks.length > 0) {
+            // アクティブロックを解除
+            await prisma.nodeLock.updateMany({
+              where: { userId, isActive: true },
+              data: { isActive: false, unlockedAt: new Date() }
+            });
+
+            // 解除されたノードのIDリスト（nodeKeyを優先）
+            const unlockedNodeIds = activeLocks.map(lock =>
+              lock.node.nodeKey ?? lock.node.id
+            );
+
+            console.log(`[Socket.IO] Auto-unlocked ${activeLocks.length} nodes for user ${userId}:`, unlockedNodeIds);
+
+            // 具体的なnodeIdリストで通知（自分含む全員へ）
+            io.to(roomId).emit('nodes-unlocked', {
+              userId,
+              nodeIds: unlockedNodeIds
+            });
           }
         } catch (error) {
           console.error('[Socket.IO] Error during auto-unlock:', error);

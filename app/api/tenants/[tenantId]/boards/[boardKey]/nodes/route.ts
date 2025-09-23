@@ -132,6 +132,7 @@ function buildGraphFromNodes(nodes: Array<{
   // uiHeight?: number | null; // TODO: マイグレーション後に有効化
 }>): SerializedGraph {
   const serializedNodes: SerializedNode[] = nodes.map((node) => {
+    // nodeKeyを優先、なければidを使用（React FlowのIDと一致させる）
     const key = node.nodeKey ?? node.id;
     return {
       id: key,
@@ -352,7 +353,7 @@ export async function PUT(
         tenantId: tenant.id,
         boardId: board.id,
         nodeKey: node.id,
-        content: node.label ?? '',
+        content: (node.label !== undefined && node.label !== '') ? node.label : '',
         depth: depthMap[node.id] ?? 0,
         category: mapNodeTypeToCategory(node.type),
         tags: [] as string[],
