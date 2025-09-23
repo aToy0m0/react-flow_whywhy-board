@@ -19,4 +19,8 @@ export type WhyNodeData = {
   openMenu: (id: string) => void;
   closeMenu: () => void;
   isMenuOpen: boolean;
+  // ロック機能
+  currentUserId?: string;
+  lockNode?: (nodeId: string) => void;
+  unlockNode?: (nodeId: string) => void;
 };

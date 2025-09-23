@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
 import { NodeCategory } from '@prisma/client';
+import { getServerSession } from 'next-auth';
+import type { Session } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 
 type SerializedNode = {
@@ -244,6 +247,15 @@ export async function GET(
   });
 }
 
+async function getCurrentUser(session: Session | null) {
+  if (!session?.user?.email) return null;
+
+  return await prisma.user.findUnique({
+    where: { email: session.user.email },
+    select: { id: true, email: true, role: true, tenantId: true }
+  });
+}
+
 export async function PUT(
   request: NextRequest,
   { params }: { params: { tenantId: string; boardKey: string } }
@@ -255,6 +267,11 @@ export async function PUT(
     tenantSlug,
     boardKey,
   });
+
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
 
   let payload: PutPayload;
   try {
@@ -270,6 +287,11 @@ export async function PUT(
   const tenant = await ensureTenant(tenantSlug);
   const board = await ensureBoard(tenant.id, boardKey, payload.name ?? boardKey);
 
+  const currentUser = await getCurrentUser(session);
+  if (!currentUser) {
+    return NextResponse.json({ error: 'User not found' }, { status: 404 });
+  }
+
   const { nodes, edges } = payload.graph;
   console.log('[API][PUT /nodes] payload sizes', {
     nodeCount: nodes.length,
@@ -278,6 +300,43 @@ export async function PUT(
   const depthMap = calcDepths(nodes, edges);
 
   await prisma.$transaction(async (tx) => {
+    // 既存ノードの編集履歴を保存
+    const existingNodes = await tx.node.findMany({
+      where: { boardId: board.id },
+      select: {
+        id: true,
+        nodeKey: true,
+        content: true,
+        category: true,
+        x: true,
+        y: true,
+        adopted: true,
+        prevNodes: true,
+        nextNodes: true
+      }
+    });
+
+    // 削除されるノードの履歴を保存
+    for (const existingNode of existingNodes) {
+      await tx.nodeEdit.create({
+        data: {
+          nodeId: existingNode.id,
+          userId: currentUser.id,
+          action: 'delete',
+          beforeData: {
+            id: existingNode.nodeKey || existingNode.id,
+            content: existingNode.content,
+            category: existingNode.category,
+            x: existingNode.x,
+            y: existingNode.y,
+            adopted: existingNode.adopted,
+            prevNodes: existingNode.prevNodes,
+            nextNodes: existingNode.nextNodes
+          }
+        }
+      });
+    }
+
     await tx.node.deleteMany({ where: { boardId: board.id } });
 
     if (!nodes.length) {
@@ -307,6 +366,42 @@ export async function PUT(
 
     if (nodeData.length) {
       await tx.node.createMany({ data: nodeData });
+
+      // 新しく作成されたノードの履歴を保存
+      const newNodes = await tx.node.findMany({
+        where: { boardId: board.id },
+        select: {
+          id: true,
+          nodeKey: true,
+          content: true,
+          category: true,
+          x: true,
+          y: true,
+          adopted: true,
+          prevNodes: true,
+          nextNodes: true
+        }
+      });
+
+      for (const newNode of newNodes) {
+        await tx.nodeEdit.create({
+          data: {
+            nodeId: newNode.id,
+            userId: currentUser.id,
+            action: 'create',
+            afterData: {
+              id: newNode.nodeKey || newNode.id,
+              content: newNode.content,
+              category: newNode.category,
+              x: newNode.x,
+              y: newNode.y,
+              adopted: newNode.adopted,
+              prevNodes: newNode.prevNodes,
+              nextNodes: newNode.nextNodes
+            }
+          }
+        });
+      }
     }
   });
 

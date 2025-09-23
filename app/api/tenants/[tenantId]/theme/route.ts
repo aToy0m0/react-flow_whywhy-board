@@ -9,17 +9,50 @@ export async function GET(
   { params }: { params: { tenantId: string } }
 ) {
   try {
+    console.log('[API][GET /theme] request', { tenantId: params.tenantId });
+
     const session = await getServerSession(authOptions);
     if (!session) {
+      console.log('[API][GET /theme] no session');
       return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
     }
 
     const { tenantId } = params;
     const { user } = session;
 
+    console.log('[API][GET /theme] session user', { userRole: user?.role, userTenantId: user?.tenantId });
+
+    // テナントをslugまたはIDで検索
+    let tenant = await prisma.tenant.findUnique({
+      where: { slug: tenantId },
+      select: { id: true, themeKey: true, slug: true }
+    });
+
+    if (!tenant) {
+      tenant = await prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { id: true, themeKey: true, slug: true }
+      });
+    }
+
+    if (!tenant) {
+      console.log('[API][GET /theme] tenant not found', { tenantId });
+      return NextResponse.json(
+        { error: 'テナントが見つかりません' },
+        { status: 404 }
+      );
+    }
+
     // アクセス権チェック
-    const isSuperAdmin = user.role === 'SUPER_ADMIN';
-    const isTenantMember = user.tenantId === tenantId;
+    const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+    const isTenantMember = user?.tenantId === tenant.id;
+
+    console.log('[API][GET /theme] access check', {
+      isSuperAdmin,
+      isTenantMember,
+      userTenantId: user?.tenantId,
+      tenantId: tenant.id
+    });
 
     if (!isSuperAdmin && !isTenantMember) {
       return NextResponse.json(
@@ -28,17 +61,7 @@ export async function GET(
       );
     }
 
-    const tenant = await prisma.tenant.findUnique({
-      where: { id: tenantId },
-      select: { id: true, themeKey: true }
-    });
-
-    if (!tenant) {
-      return NextResponse.json(
-        { error: 'テナントが見つかりません' },
-        { status: 404 }
-      );
-    }
+    console.log('[API][GET /theme] success', { tenant });
 
     return NextResponse.json({
       ok: true,

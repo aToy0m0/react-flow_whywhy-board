@@ -36,6 +36,7 @@ COPY --chown=node:node --from=builder /app/.next ./.next
 COPY --chown=node:node --from=builder /app/node_modules ./node_modules
 COPY --chown=node:node --from=builder /app/public ./public
 COPY --chown=node:node --from=builder /app/prisma ./prisma
+COPY --chown=node:node --from=builder /app/server.js ./server.js
 
 EXPOSE 3000
 CMD ["npm", "start"]

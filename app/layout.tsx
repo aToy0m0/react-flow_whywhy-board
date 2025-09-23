@@ -23,14 +23,20 @@ import "@xyflow/react/dist/style.css";
 import "./globals.css";
 import type { ReactNode } from "react";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import { SessionProvider } from "@/components/SessionProvider";
+import { NodeLockProvider } from "../contexts/NodeLockContext";
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="ja">
       <body className="min-h-screen">
-        <ThemeProvider>
-          {children}
-        </ThemeProvider>
+        <SessionProvider>
+          <ThemeProvider>
+            <NodeLockProvider>
+              {children}
+            </NodeLockProvider>
+          </ThemeProvider>
+        </SessionProvider>
       </body>
     </html>
   );

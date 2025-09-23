@@ -32,6 +32,9 @@ import { serializeGraph, deserializeGraph, toToml, fromToml } from "@/lib/boardI
 import { parentOf } from "@/lib/boardIO";
 import { getChildrenSorted, computeLayoutForParent } from "@/lib/boardLayout";
 import { useContextMenu } from "@/hooks/useContextMenu";
+import { useSocket } from "../hooks/useSocket";
+import { useNodeLock } from "../contexts/NodeLockContext";
+import { useSession } from "next-auth/react";
 import { EDGE_TYPE, STEP_EDGE_OFFSET, STEP_EDGE_RADIUS, X_COL_GAP, Y_ROW_GAP, FITVIEW_PADDING, DEFAULT_VIEWPORT, DEFAULT_ROOT_POS } from "@/lib/layoutConstants";
 
 // MARK: Props / 型エイリアス
@@ -58,6 +61,34 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
   const rf = useReactFlow();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const tenantSlug = tenantId ?? process.env.NEXT_PUBLIC_TENANT_ID ?? 'default';
+
+  // セッションとロック機能
+  const session = useSession()?.data;
+  const { lockNode, unlockNode } = useNodeLock();
+
+  // 自動保存用のデバウンスタイマー
+  const autoSaveTimer = useRef<NodeJS.Timeout | null>(null);
+
+  // Socket.IO統合（同時編集用、現在は無効化）
+  const { lockNode: socketLockNode, unlockNode: socketUnlockNode } = useSocket({
+    tenantId: tenantSlug,
+    boardKey: boardId,
+    userId: session?.user?.id || 'anonymous',
+    onNodeLocked: (data) => {
+      lockNode(data.nodeId, data.userId, data.userName, data.lockedAt);
+    },
+    onNodeUnlocked: (data) => {
+      unlockNode(data.nodeId);
+    },
+    onNodeUpdated: (data) => {
+      // 他のユーザーからのノード更新を反映
+      setNodes(nds => nds.map(n =>
+        n.id === data.nodeId
+          ? { ...n, data: { ...n.data, label: data.content } }
+          : n
+      ));
+    }
+  });
   const [nodes, setNodes, onNodesChange] = useNodesState<RFNode<WhyNodeData>>([
     {
       id: "root",
@@ -95,6 +126,39 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
   }, []);
 
   const apiEndpoint = useMemo(() => `/api/tenants/${tenantSlug}/boards/${boardId}/nodes`, [tenantSlug, boardId]);
+
+  // 自動保存関数（既存のsaveRemote APIを使用）
+  const autoSaveToRemote = useCallback(async () => {
+    // 既存のタイマーをクリア
+    if (autoSaveTimer.current) {
+      clearTimeout(autoSaveTimer.current);
+    }
+
+    // 即時保存実行（同時編集対応のため）
+    autoSaveTimer.current = setTimeout(async () => {
+      if (!mountedRef.current) return;
+
+      try {
+        console.log('[AutoSave] Saving to remote...');
+        const graph = serializeGraph(nodes, edges);
+        const headers: HeadersInit = { 'Content-Type': 'application/json' };
+        const res = await fetch(apiEndpoint, {
+          method: 'PUT',
+          headers,
+          credentials: 'include',
+          body: JSON.stringify({ name: boardId, graph }),
+        });
+
+        if (res.ok) {
+          console.log('[AutoSave] Saved successfully');
+        } else {
+          console.error('[AutoSave] Failed to save:', res.statusText);
+        }
+      } catch (error) {
+        console.error('[AutoSave] Error:', error);
+      }
+    }, 100); // 100msの短い遅延で即時保存
+  }, [nodes, edges, boardId, apiEndpoint]);
 
   // MARK: 接続ドラッグ中の接続元ノードIDを保持
   const connectingFrom = useRef<string | null>(null);
@@ -255,13 +319,20 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
           hasChildren: (id: string) => edges.some((edge) => edge.source === id),
           hasCauseDescendant,
           canDelete: (id: string) => id !== "root",
-          onDelete: (id: string) => deleteNode(id),
-          onChangeLabel: (id: string, value: string) =>
+          onDelete: (id: string) => {
+            deleteNode(id);
+            // ノード削除後も自動保存
+            autoSaveToRemote();
+          },
+          onChangeLabel: (id: string, value: string) => {
             setNodes((previous) =>
               previous.map((item) =>
                 item.id === id ? { ...item, data: { ...item.data, label: value } } : item
               )
-            ),
+            );
+            // 自動保存（デバウンス）
+            autoSaveToRemote();
+          },
           onUpdateHeight: (id: string, height: number) =>
             setNodes((previous) =>
               previous.map((item) =>
@@ -271,18 +342,33 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
           onToggleAdopted,
           onAddChild: (parentId: string, type?: NodeType) => {
             latestAddChildNode.current(parentId, type);
+            // ノード追加後も自動保存
+            autoSaveToRemote();
           },
           openMenu: (id: string) => openMenu(id),
           closeMenu: () => closeMenu(),
           isMenuOpen: node.id === menuOpenFor,
+          // ロック機能
+          currentUserId: session?.user?.id,
+          lockNode: socketLockNode,
+          unlockNode: socketUnlockNode,
         },
       };
     },
-    [boardId, closeMenu, deleteNode, edges, getParentInfo, menuOpenFor, nodes, onToggleAdopted, openMenu, setNodes]
+    [boardId, closeMenu, deleteNode, edges, getParentInfo, menuOpenFor, nodes, onToggleAdopted, openMenu, setNodes, session?.user?.id, socketLockNode, socketUnlockNode, autoSaveToRemote]
   );
   useEffect(() => {
     enhanceNodeRef.current = enhanceNode;
   }, [enhanceNode]);
+
+  // クリーンアップ処理
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimer.current) {
+        clearTimeout(autoSaveTimer.current);
+      }
+    };
+  }, []);
   // MARK: レイアウト — 親の右に子を等間隔 / 原因は最深子Yに揃える
   const layoutChildren = useCallback(
     (parentId: string) => setNodes((nds) => computeLayoutForParent(nds, edges, parentId)),

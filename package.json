@@ -26,9 +26,9 @@
   "homepage": "https://github.com/aToy0m0/react-flow_whywhy-board#readme",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "node server.js",
     "build": "next build",
-    "start": "next start",
+    "start": "NODE_ENV=production node server.js",
     "lint": "next lint",
     "type-check": "tsc --noEmit",
     "clean": "rm -rf .next node_modules/.cache"
@@ -44,7 +44,9 @@
     "next": "^14.2.7",
     "next-auth": "^4.24.6",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "socket.io": "^4.7.5",
+    "socket.io-client": "^4.7.5"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

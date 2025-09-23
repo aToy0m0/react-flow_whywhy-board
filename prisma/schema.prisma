@@ -66,6 +66,8 @@ model Node {
   y          Float        @default(0)
   adopted    Boolean      @default(false)
   uiHeight   Float?
+  locks      NodeLock[]
+  edits      NodeEdit[]
   createdAt  DateTime     @default(now())
   updatedAt  DateTime     @updatedAt
 
@@ -74,13 +76,46 @@ model Node {
 }
 
 model User {
-  id           String    @id @default(cuid())
-  email        String    @unique
+  id           String     @id @default(cuid())
+  email        String     @unique
   passwordHash String
-  role         UserRole  @default(MEMBER)
+  role         UserRole   @default(MEMBER)
   tenantId     String
-  tenant       Tenant    @relation(fields: [tenantId], references: [id])
-  boards       Board[]   @relation("BoardOwner")
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  tenant       Tenant     @relation(fields: [tenantId], references: [id])
+  boards       Board[]    @relation("BoardOwner")
+  nodeLocks    NodeLock[]
+  nodeEdits    NodeEdit[]
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+model NodeLock {
+  id         String    @id @default(cuid())
+  nodeId     String
+  userId     String
+  node       Node      @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  user       User      @relation(fields: [userId], references: [id])
+  lockedAt   DateTime  @default(now())
+  unlockedAt DateTime?
+  isActive   Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([nodeId, isActive])
+  @@index([lockedAt])
+}
+
+model NodeEdit {
+  id         String   @id @default(cuid())
+  nodeId     String
+  userId     String
+  node       Node     @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id])
+  action     String   // 'create' | 'update' | 'delete' | 'undo' | 'redo'
+  beforeData Json?    // 変更前のデータ
+  afterData  Json?    // 変更後のデータ
+  createdAt  DateTime @default(now())
+
+  @@index([nodeId, createdAt])
+  @@index([userId, createdAt])
 }

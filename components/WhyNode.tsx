@@ -1,9 +1,10 @@
 "use client";
-import { memo, useEffect, useRef } from "react";
+import { memo, useEffect, useRef, useState, useCallback } from "react";
 import { Handle, Position, NodeProps, NodeToolbar } from "@xyflow/react";
 import type { Node as RFNode } from "@xyflow/react";
 import clsx from "clsx";
 import type { NodeType, WhyNodeData } from "./boardTypes";
+import { useNodeLock } from "../contexts/NodeLockContext";
 
 const colors: Record<NodeType, { border: string; bg: string }> = {
   root: { border: "border-red-500", bg: "bg-red-50" },
@@ -33,8 +34,22 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
   const d = data as WhyNodeData; // 型を明示
   const { index } = d.getParentInfo(id);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const [editTimeout, setEditTimeout] = useState<NodeJS.Timeout | null>(null);
+
+  // ロック機能フック
+  const {
+    isNodeLocked,
+    getNodeLockInfo,
+    isNodeLockedByCurrentUser
+  } = useNodeLock();
 
   const placeholder = d.type === "root" ? "問題" : d.type === "action" ? "対策" : "○○がｘｘだから";
+
+  // ノードのロック状態
+  const locked = isNodeLocked(id);
+  const lockInfo = getNodeLockInfo(id);
+  const lockedByMe = isNodeLockedByCurrentUser(id, d.currentUserId || '');
+  const canEdit = !locked || lockedByMe;
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -47,18 +62,59 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
     }
   }, [d.heightHint, d.label]);
 
+  // 編集開始時のロック処理
+  const handleEditStart = useCallback(() => {
+    if (!canEdit) return;
+
+    // Socket.IOでロック要求
+    if (d.lockNode) {
+      d.lockNode(id);
+    }
+  }, [canEdit, d, id]);
+
+  // 編集終了時のロック解除処理
+  const handleEditEnd = useCallback(() => {
+    if (editTimeout) {
+      clearTimeout(editTimeout);
+    }
+
+    const timeout = setTimeout(() => {
+      if (d.unlockNode && lockedByMe) {
+        d.unlockNode(id);
+      }
+    }, 2000); // 2秒後に自動でロック解除
+
+    setEditTimeout(timeout);
+  }, [editTimeout, d, lockedByMe, id]);
+
+  // コンポーネントがアンマウントされる時のクリーンアップ
+  useEffect(() => {
+    return () => {
+      if (editTimeout) {
+        clearTimeout(editTimeout);
+      }
+      if (lockedByMe && d.unlockNode) {
+        d.unlockNode(id);
+      }
+    };
+  }, [editTimeout, lockedByMe, d, id]);
+
   return (
     <div
       onContextMenu={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        d.openMenu(id);
+        if (canEdit) d.openMenu(id);
       }}
       className={clsx(
-        "rounded-md border shadow-sm px-3 py-2 w-[260px]",
+        "rounded-md border shadow-sm px-3 py-2 w-[260px] relative",
         colors[d.type].border,
         colors[d.type].bg,
-        selected && "ring-2 ring-blue-400"
+        selected && "ring-2 ring-blue-400",
+        locked && !lockedByMe && "opacity-60 cursor-not-allowed",
+        locked && "border-2",
+        lockedByMe && "border-orange-400",
+        locked && !lockedByMe && "border-red-400"
       )}
     >
       <NodeToolbar isVisible={d.isMenuOpen} position={Position.Top} className="!p-1">
@@ -121,6 +177,16 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
           </button>
         </div>
       </NodeToolbar>
+      {/* ロック状態表示バッジ */}
+      {locked && (
+        <div className={clsx(
+          "absolute -top-2 -right-2 px-2 py-1 rounded-full text-xs font-semibold text-white z-10",
+          lockedByMe ? "bg-orange-500" : "bg-red-500"
+        )}>
+          {lockedByMe ? "編集中" : `${lockInfo?.userName}が編集中`}
+        </div>
+      )}
+
       <div className="flex items-center">
         <Header type={d.type} index={index} />
         {(d.type === "why" || d.type === "cause") && (
@@ -128,7 +194,7 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
             <input
               type="checkbox"
               checked={!!d.adopted}
-              disabled={d.type === "why" && (d.hasChildren(id) || d.hasCauseDescendant?.(id))}
+              disabled={!canEdit || (d.type === "why" && (d.hasChildren(id) || d.hasCauseDescendant?.(id)))}
               onChange={(e) => d.onToggleAdopted?.(id, e.target.checked)}
               onPointerDown={(e) => e.stopPropagation()}
               onMouseDown={(e) => e.stopPropagation()}
@@ -141,19 +207,41 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
       <textarea
         ref={textareaRef}
         value={d.label}
-        onChange={(e) => d.onChangeLabel(id, e.target.value)}
+        readOnly={!canEdit}
+        onChange={(e) => {
+          if (canEdit) {
+            d.onChangeLabel(id, e.target.value);
+            handleEditEnd(); // 編集時にタイマーリセット
+          }
+        }}
+        onFocus={handleEditStart}
+        onBlur={handleEditEnd}
         onInput={(e) => {
+          if (!canEdit) return;
           const el = e.currentTarget;
           el.style.height = "auto";
           el.style.height = `${el.scrollHeight}px`;
           d.onUpdateHeight?.(id, el.scrollHeight);
         }}
-        onPointerDown={(e) => e.stopPropagation()}
-        onMouseDown={(e) => e.stopPropagation()}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          if (!canEdit) {
+            e.preventDefault();
+          }
+        }}
+        onMouseDown={(e) => {
+          e.stopPropagation();
+          if (!canEdit) {
+            e.preventDefault();
+          }
+        }}
         onDragStart={(e) => e.preventDefault()}
-        placeholder={placeholder}
+        placeholder={canEdit ? placeholder : (locked ? `${lockInfo?.userName}が編集中...` : placeholder)}
         rows={2}
-        className="mt-1 w-full resize-none bg-transparent outline-none nodrag"
+        className={clsx(
+          "mt-1 w-full resize-none bg-transparent outline-none nodrag text-black",
+          !canEdit && "cursor-not-allowed"
+        )}
       />
       {/* 左（上位）ハンドルはルートで非表示 */}
       {d.type !== "root" && (

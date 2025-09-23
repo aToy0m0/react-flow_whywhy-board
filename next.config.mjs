@@ -9,6 +9,17 @@ export default function nextConfig(phase) {
     experimental: {
       typedRoutes: true,
     },
+    webpack: (config, { dev, isServer }) => {
+      // Socket.IO用のWebSocket設定
+      if (!isServer) {
+        config.resolve.fallback = {
+          ...config.resolve.fallback,
+          net: false,
+          tls: false,
+        };
+      }
+      return config;
+    },
   };
 
   // next passes a phase string like 'phase-development-server'
