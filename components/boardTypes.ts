@@ -23,4 +23,6 @@ export type WhyNodeData = {
   currentUserId?: string;
   lockNode?: (nodeId: string) => void;
   unlockNode?: (nodeId: string) => void;
+  // Socket.IO同期機能
+  notifyNodeUpdate?: (nodeId: string, content: string, position?: { x: number; y: number }, extraData?: { adopted?: boolean; type?: string }) => void;
 };

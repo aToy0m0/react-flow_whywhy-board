@@ -1,5 +1,5 @@
 "use client";
-import { Menu, Home, ChevronLeft, RotateCcw, Grid3X3, Maximize, HelpCircle, Pencil } from 'lucide-react';
+import { Menu, Home, ChevronLeft, RotateCcw, Grid3X3, Maximize, HelpCircle, Pencil, CheckCircle } from 'lucide-react';
 import Link from 'next/link';
 import type { Route } from 'next';
 import type { LucideIcon } from 'lucide-react';
@@ -13,9 +13,10 @@ interface HeaderProps {
   onRename?: () => void;
   onToggleSidebar: () => void;
   boardRef: React.RefObject<BoardHandle>;
+  isBoardFinalized?: boolean;
 }
 
-export default function Header({ tenantId, boardId, boardName, renaming = false, onRename, onToggleSidebar, boardRef }: HeaderProps) {
+export default function Header({ tenantId, boardId, boardName, renaming = false, onRename, onToggleSidebar, boardRef, isBoardFinalized = false }: HeaderProps) {
   const openHelpWindow = () => {
     const helpWindow = window.open('', 'helpWindow', 'width=800,height=600,scrollbars=yes,resizable=yes');
     if (helpWindow) {
@@ -113,7 +114,7 @@ export default function Header({ tenantId, boardId, boardName, renaming = false,
         </div>
 
         <div className="flex items-center gap-2">
-          {getMenuItems({ boardRef, openHelpWindow, tenantId }).map((item) => {
+          {getMenuItems({ boardRef, openHelpWindow, tenantId, isBoardFinalized }).map((item) => {
             const Icon = item.icon;
 
             if (item.isLink && item.href) {
@@ -135,8 +136,9 @@ export default function Header({ tenantId, boardId, boardName, renaming = false,
             return (
               <button
                 key={item.label}
-                onClick={() => item.onClick?.()}
-                className="flex flex-col items-center px-3 py-2 hover:bg-[rgba(238,187,195,0.1)] rounded-xl transition-colors group"
+                onClick={() => item.disabled ? undefined : item.onClick?.()}
+                className={`flex flex-col items-center px-3 py-2 rounded-xl transition-colors group ${item.disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-[rgba(238,187,195,0.1)]'}`}
+                disabled={item.disabled}
                 title={item.tooltip}
               >
                 <Icon size={18} className="text-black group-hover:text-gray-600 transition-colors mb-1" />
@@ -159,16 +161,19 @@ type HeaderMenuItem = {
   onClick?: () => void;
   href?: Route;
   isLink?: boolean;
+  disabled?: boolean;
 };
 
 function getMenuItems({
   boardRef,
   openHelpWindow,
   tenantId,
+  isBoardFinalized,
 }: {
   boardRef: React.RefObject<BoardHandle>;
   openHelpWindow: () => void;
   tenantId: string;
+  isBoardFinalized: boolean;
 }): HeaderMenuItem[] {
   return [
     {
@@ -185,16 +190,28 @@ function getMenuItems({
       onClick: () => window.history.back(),
     },
     {
+      icon: CheckCircle,
+      label: '成立',
+      tooltip: isBoardFinalized ? '成立済みのボードです' : 'ボードを成立（編集終了）',
+      onClick: () => {
+        if (isBoardFinalized) return;
+        boardRef.current?.finalizeBoard?.();
+      },
+      disabled: isBoardFinalized,
+    },
+    {
       icon: RotateCcw,
       label: 'クリア',
       tooltip: '全てのノードを削除',
       onClick: () => boardRef.current?.clearBoard(),
+      disabled: isBoardFinalized,
     },
     {
       icon: Grid3X3,
       label: '整列',
       tooltip: 'ノードを自動で整列',
       onClick: () => boardRef.current?.relayoutAll(),
+      disabled: isBoardFinalized,
     },
     {
       icon: Maximize,

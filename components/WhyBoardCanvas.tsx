@@ -42,9 +42,31 @@ type Props = {
   tenantId: string;
   boardId: string;
   style?: React.CSSProperties;
+  onBoardStateChange?: (state: { isFinalized: boolean }) => void;
+  onBoardDeleted?: (payload: BoardDeletedPayload) => void;
 };
 
 type WNode = RFNode<WhyNodeData>;
+
+type BoardStatus = 'DRAFT' | 'ACTIVE' | 'FINALIZED' | 'ARCHIVED';
+
+type BoardDeletedPayload = {
+  boardId: string;
+  boardKey?: string;
+  initiatedBy: string;
+  deletedAt: string;
+  redirectTo: string;
+};
+
+type BoardMeta = {
+  id: string;
+  boardKey: string;
+  name: string;
+  tenantId: string;
+  status?: BoardStatus;
+  finalizedAt?: string | null;
+  deletedAt?: string | null;
+};
 
 // MARK: ノードレンダラーのマップ
 const nodeTypes: Record<string, typeof WhyNode> = { why: WhyNode };
@@ -57,55 +79,145 @@ type ToastMessage = {
 };
 
 // MARK: CanvasInner — ReactFlow の Provider 配下で動く本体
-function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHandle>) {
+function CanvasInner({ tenantId, boardId, style, onBoardStateChange, onBoardDeleted }: Props, ref: React.Ref<BoardHandle>) {
   const rf = useReactFlow();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const tenantSlug = tenantId ?? process.env.NEXT_PUBLIC_TENANT_ID ?? 'default';
 
   // セッションとロック機能
   const session = useSession()?.data;
-  const { lockNode, unlockNode } = useNodeLock();
+  const { lockNode: registerLock, unlockNode: releaseLock } = useNodeLock();
+  const [isBoardFinalized, setIsBoardFinalized] = useState(false);
 
-  // リアルタイム状態管理
-  const [useRealtime, setUseRealtime] = useState(true);
 
-  // 自動保存用のデバウンスタイマー
-  const autoSaveTimer = useRef<NodeJS.Timeout | null>(null);
 
-  // Socket.IO統合（同時編集用）
-  const { lockNode: socketLockNode, unlockNode: socketUnlockNode, socket } = useSocket({
+  // Socket.IO統合（同時編集用）- 認証済みユーザーのみ
+  const { lockNode: socketLockNode, unlockNode: socketUnlockNode, socket, notifyNodeUpdate: socketNotifyNodeUpdate, sendBoardAction } = useSocket({
     tenantId: tenantSlug,
     boardKey: boardId,
-    userId: session?.user?.id || 'anonymous',
+    userId: session?.user?.id || '', // 空文字でSocket接続を無効化
     onNodeLocked: (data) => {
-      lockNode(data.nodeId, data.userId, data.userName, data.lockedAt);
-      setUseRealtime(true); // ロック取得時にリアルタイムモード開始
+      registerLock(data.nodeId, data.userId, data.userName, data.lockedAt);
     },
     onNodeUnlocked: (data) => {
-      unlockNode(data.nodeId);
+      releaseLock(data.nodeId);
     },
     onNodeUpdated: (data) => {
-      // 他のユーザーからのノード更新を反映（content + position）
+      // 他のユーザーからのノード更新を反映（content + position + adopted + type）
       setNodes(nds => nds.map(n =>
         n.id === data.nodeId
           ? {
               ...n,
-              data: { ...n.data, label: data.content },
+              data: {
+                ...n.data,
+                label: data.content,
+                ...(data.adopted !== undefined && { adopted: data.adopted }),
+                ...(data.type !== undefined &&
+                   ['root', 'why', 'cause', 'action'].includes(data.type) &&
+                   { type: data.type as NodeType }),
+              },
               position: { x: data.position.x, y: data.position.y }
             }
           : n
       ));
-      setUseRealtime(true); // ノード更新受信時にリアルタイムモード開始
     },
     onUserJoined: (data) => {
       console.log('[WhyBoard] User joined:', data);
-      setUseRealtime(true); // 他ユーザー参加時にリアルタイムモード開始
     },
     onUserLeft: (data) => {
       console.log('[WhyBoard] User left:', data);
-      // 他にユーザーがいない場合はリアルタイムモード終了
-      // 簡易実装：しばらくしてからREST保存に戻す
-      setTimeout(() => setUseRealtime(false), 5000);
+    },
+    onBoardAction: (data) => {
+      console.log('[WhyBoard] Board action received:', data);
+      // 自分が実行したアクションは除外（重複実行を防ぐ）
+      if (data.action !== 'finalize' && data.initiatedBy === session?.user?.id) {
+        console.log('[WhyBoard] Skipping own board action');
+        return;
+      }
+      // 他のユーザーからのボードアクションを実行
+      if (data.action === 'relayout') {
+        // 整列実行
+        const parentIds = Array.from(new Set(edges.map(e => e.source)));
+        setNodes(prev =>
+          parentIds.reduce((acc, pid) => computeLayoutForParent(acc, edges, pid), prev)
+        );
+      } else if (data.action === 'clear') {
+        // クリア実行
+        const root = enhanceNode({
+          id: 'root',
+          type: 'why',
+          position: { x: DEFAULT_ROOT_POS.x, y: DEFAULT_ROOT_POS.y },
+          data: {
+            label: '',
+            type: 'root',
+            adopted: false,
+            boardId,
+            createdAt: Date.now(),
+            // 以下ダミー。enhanceNodeで正しい関数に入れ替わります
+            onChangeLabel: () => {},
+            onToggleAdopted: () => {},
+            getParentInfo: () => ({}),
+            canDelete: () => true,
+            onDelete: () => {},
+            onAddChild: () => {},
+            onUpdateHeight: () => {},
+            hasChildren: () => false,
+            openMenu: () => {},
+            closeMenu: () => {},
+            isMenuOpen: false,
+          },
+        });
+        setNodes([root]);
+        setEdges([]);
+        try { rf.setViewport({ x: 0, y: 0, zoom: 1 }); } catch {}
+        setTimeout(() => rf.fitView({ padding: FITVIEW_PADDING }), 0);
+      } else if (data.action === 'finalize') {
+        setIsBoardFinalized(true);
+      }
+    },
+    onBoardReloadRequired: (data) => {
+      console.log('[WhyBoard] Board reload required:', data);
+
+      // 自分が実行したアクションは除外（重複実行を防ぐ）
+      if (data.action !== 'finalize' && data.initiatedBy === session?.user?.id) {
+        console.log('[WhyBoard] Skipping own board reload required');
+        return;
+      }
+
+      // ノード作成以外のみDBから再読み込み（ノード作成時はリアルタイム更新で既に反映済み）
+      if (data.action !== 'node-created') {
+        loadRemoteFromServer();
+      }
+
+      if (data.action === 'finalize') {
+        setIsBoardFinalized(true);
+      }
+
+      // ユーザーに通知
+      const actionText = data.action === 'relayout' ? '整列' :
+                        data.action === 'clear' ? 'クリア' :
+                        data.action === 'finalize' ? '成立' :
+                        data.action === 'node-created' ? 'ノード作成' : data.action;
+      showToast(`${actionText}が実行されました`);
+    },
+    onBoardFinalized: (data) => {
+      console.log('[WhyBoard] Board finalized event received:', data);
+      setIsBoardFinalized(true);
+    },
+    onBoardDeleted: (data) => {
+      console.log('[WhyBoard] Board deleted event received:', data);
+
+      nodes.forEach((node) => {
+        releaseLock(node.id);
+      });
+
+      setBoardMeta((prev) => prev ? { ...prev, deletedAt: data.deletedAt } : prev);
+      setIsBoardFinalized(true);
+      setNodes([]);
+      setEdges([]);
+      showToast('このボードは削除されました');
+      onBoardStateChange?.({ isFinalized: true });
+      onBoardDeleted?.(data);
     }
   });
 
@@ -115,7 +227,6 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
 
     const handleJoined = ({ roomId, userId }: { roomId: string; userId: string }) => {
       console.log('[WhyBoard] Socket joined confirmed:', { roomId, userId });
-      setUseRealtime(true);
     };
 
     socket.on('joined', handleJoined);
@@ -154,76 +265,22 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
   const [, setIsRemoteSyncing] = useState(false);
   const mountedRef = useRef(true);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [, setBoardMeta] = useState<BoardMeta | null>(null);
+  const positionUpdateTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     return () => {
       mountedRef.current = false;
+      // ポジション更新タイマーのクリーンアップ
+      if (positionUpdateTimerRef.current) {
+        clearTimeout(positionUpdateTimerRef.current);
+      }
     };
   }, []);
 
   const apiEndpoint = useMemo(() => `/api/tenants/${tenantSlug}/boards/${boardId}/nodes`, [tenantSlug, boardId]);
 
-  // 自動保存関数（既存のsaveRemote APIを使用）
-  const autoSaveToRemote = useCallback(async () => {
-    // リアルタイムモード時は REST自動保存をスキップ（ただしforce=trueで強制実行可能）
-    if (useRealtime) {
-      console.log('[AutoSave] Skipped - realtime mode active');
-      return;
-    }
 
-    // 既存のタイマーをクリア
-    if (autoSaveTimer.current) {
-      clearTimeout(autoSaveTimer.current);
-    }
-
-    // 即時保存実行（同時編集対応のため）
-    autoSaveTimer.current = setTimeout(async () => {
-      if (!mountedRef.current) return;
-
-      try {
-        console.log('[AutoSave] Saving to remote...');
-        const graph = serializeGraph(nodes, edges);
-        const headers: HeadersInit = { 'Content-Type': 'application/json' };
-        const res = await fetch(apiEndpoint, {
-          method: 'PUT',
-          headers,
-          credentials: 'include',
-          body: JSON.stringify({ name: boardId, graph }),
-        });
-
-        if (res.ok) {
-          console.log('[AutoSave] Saved successfully');
-        } else {
-          console.error('[AutoSave] Failed to save:', res.statusText);
-        }
-      } catch (error) {
-        console.error('[AutoSave] Error:', error);
-      }
-    }, 100); // 100msの短い遅延で即時保存
-  }, [nodes, edges, boardId, apiEndpoint, useRealtime]);
-
-  // エッジ専用保存関数（リアルタイムモードでも動作）
-  const saveEdgesToRemote = useCallback(async () => {
-    try {
-      console.log('[EdgeSave] Saving edges to remote...');
-      const graph = serializeGraph(nodes, edges);
-      const headers: HeadersInit = { 'Content-Type': 'application/json' };
-      const res = await fetch(apiEndpoint, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify({
-          graph,
-          name: boardId,
-        }),
-      });
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-      }
-      console.log('[EdgeSave] Success');
-    } catch (error) {
-      console.error('[EdgeSave] Failed:', error);
-    }
-  }, [nodes, edges, boardId, apiEndpoint]);
 
   // MARK: 接続ドラッグ中の接続元ノードIDを保持
   const connectingFrom = useRef<string | null>(null);
@@ -244,6 +301,55 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
       setToasts((prev) => prev.filter((toast) => toast.id !== id));
     }, TOAST_DURATION_MS);
   }, []);
+
+  const warnBoardFinalized = useCallback(() => {
+    showToast('このボードは成立済みのため編集できません');
+  }, [showToast]);
+
+  const prevFinalizedRef = useRef<boolean>(false);
+  useEffect(() => {
+    if (prevFinalizedRef.current !== isBoardFinalized) {
+      onBoardStateChange?.({ isFinalized: isBoardFinalized });
+      prevFinalizedRef.current = isBoardFinalized;
+    }
+  }, [isBoardFinalized, onBoardStateChange]);
+
+  const lockNodeSafely = useCallback((nodeId: string, ensure?: {
+    content?: string;
+    position?: { x: number; y: number };
+    category?: string;
+    depth?: number;
+    tags?: string[];
+    prevNodes?: string[];
+    nextNodes?: string[];
+    adopted?: boolean;
+  }) => {
+    if (isBoardFinalized) {
+      warnBoardFinalized();
+      return;
+    }
+    socketLockNode?.(nodeId, ensure);
+  }, [isBoardFinalized, socketLockNode, warnBoardFinalized]);
+
+  const notifyNodeUpdateSafely = useCallback((nodeId: string, content: string, position?: { x: number; y: number }, extraData?: { adopted?: boolean; type?: string }) => {
+    if (isBoardFinalized) {
+      warnBoardFinalized();
+      return;
+    }
+    socketNotifyNodeUpdate?.(nodeId, content, position, extraData);
+  }, [isBoardFinalized, socketNotifyNodeUpdate, warnBoardFinalized]);
+
+  const sendBoardActionSafely = useCallback((action: 'relayout' | 'clear' | 'finalize') => {
+    if (isBoardFinalized && action !== 'finalize') {
+      warnBoardFinalized();
+      return;
+    }
+    if (action === 'finalize' && isBoardFinalized) {
+      warnBoardFinalized();
+      return;
+    }
+    sendBoardAction?.(action);
+  }, [isBoardFinalized, sendBoardAction, warnBoardFinalized]);
 
   // MARK: クエリ — 親 -> 子（作成順で安定ソート）
   const getChildren = useCallback((parentId: string) => getChildrenSorted(nodes, edges, parentId), [nodes, edges]);
@@ -329,6 +435,11 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
   // MARK: アクション — 採用トグル（なぜ<->原因 の切替）
   const onToggleAdopted = useCallback(
     (id: string, value: boolean) => {
+      if (isBoardFinalized) {
+        warnBoardFinalized();
+        return;
+      }
+      // ローカル状態更新
       setNodes((prev) =>
         prev.map((n) =>
           n.id === id
@@ -336,8 +447,20 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
             : n
         )
       );
+
+      // Socket.IO経由でDB保存と他ユーザー伝搬
+      if (socketNotifyNodeUpdate) {
+        const currentNode = nodes.find(n => n.id === id);
+        if (currentNode) {
+          // ノード情報を更新してDB保存
+          socketNotifyNodeUpdate(id, currentNode.data.label, currentNode.position, {
+            adopted: value,
+            type: value ? "cause" : "why"
+          });
+        }
+      }
     },
-    [setNodes]
+    [isBoardFinalized, nodes, setNodes, socketNotifyNodeUpdate, warnBoardFinalized]
   );
 
   // 既存ノードに最新の getParentInfo プロキシを一括設定（初回のみ）
@@ -349,11 +472,15 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
   // MARK: アクション — ノード削除（関連エッジも削除）
   const deleteNode = useCallback(
     (id: string) => {
+      if (isBoardFinalized) {
+        warnBoardFinalized();
+        return;
+      }
       if (id === "root") return;
       setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id));
       setNodes((nds) => nds.filter((n) => n.id !== id));
     },
-    [setNodes, setEdges]
+    [isBoardFinalized, setNodes, setEdges, warnBoardFinalized]
   );
 
   // MARK: ノード強化 — コールバック/状態を data に注入
@@ -386,8 +513,6 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
           canDelete: (id: string) => id !== "root",
           onDelete: (id: string) => {
             deleteNode(id);
-            // ノード削除後も自動保存
-            autoSaveToRemote();
           },
           onChangeLabel: (id: string, value: string) => {
             setNodes((previous) =>
@@ -395,8 +520,6 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
                 item.id === id ? { ...item, data: { ...item.data, label: value } } : item
               )
             );
-            // 自動保存（デバウンス）
-            autoSaveToRemote();
           },
           onUpdateHeight: (id: string, height: number) =>
             setNodes((previous) =>
@@ -407,33 +530,25 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
           onToggleAdopted,
           onAddChild: (parentId: string, type?: NodeType) => {
             latestAddChildNode.current(parentId, type);
-            // ノード追加後も自動保存
-            autoSaveToRemote();
           },
           openMenu: (id: string) => openMenu(id),
           closeMenu: () => closeMenu(),
           isMenuOpen: node.id === menuOpenFor,
           // ロック機能
           currentUserId: session?.user?.id,
-          lockNode: socketLockNode,
+          lockNode: lockNodeSafely,
           unlockNode: socketUnlockNode,
+          // Socket.IO同期機能
+          notifyNodeUpdate: notifyNodeUpdateSafely,
         },
       };
     },
-    [boardId, closeMenu, deleteNode, edges, getParentInfo, menuOpenFor, nodes, onToggleAdopted, openMenu, setNodes, session?.user?.id, socketLockNode, socketUnlockNode, autoSaveToRemote]
+    [boardId, closeMenu, deleteNode, edges, getParentInfo, menuOpenFor, nodes, onToggleAdopted, openMenu, setNodes, session?.user?.id, lockNodeSafely, notifyNodeUpdateSafely, socketUnlockNode]
   );
   useEffect(() => {
     enhanceNodeRef.current = enhanceNode;
   }, [enhanceNode]);
 
-  // クリーンアップ処理
-  useEffect(() => {
-    return () => {
-      if (autoSaveTimer.current) {
-        clearTimeout(autoSaveTimer.current);
-      }
-    };
-  }, []);
   // MARK: レイアウト — 親の右に子を等間隔 / 原因は最深子Yに揃える
   const layoutChildren = useCallback(
     (parentId: string) => setNodes((nds) => computeLayoutForParent(nds, edges, parentId)),
@@ -449,6 +564,10 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
    */
   const addChildNode = useCallback(
     (parentId: string, typeOverride?: NodeType) => {
+      if (isBoardFinalized) {
+        warnBoardFinalized();
+        return;
+      }
       const parent = nodes.find((n) => n.id === parentId);
       if (!parent) return;
       const siblings = getChildren(parentId);
@@ -475,7 +594,7 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
         data: {
-          label: type === 'why' ? 'なぜ？' : type === 'cause' ? '原因' : '対策',
+          label: "",
           type,
           adopted,
           boardId,
@@ -507,24 +626,30 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
         )
       );
 
-      // エッジ作成後に保存（リアルタイムモードでもエッジ情報を永続化）
-      setTimeout(() => saveEdgesToRemote(), 100);
 
-      // 新規ノード作成時はensure付きでロック要求
-      if (socketLockNode) {
-        socketLockNode(childId, {
-          content: newNode.data.label,
-          position: { x: newNode.position.x, y: newNode.position.y },
-          category: newNode.data.type === 'root' ? 'Root' : 'Why',
-          depth: 0,
-          tags: []
-        });
-      }
+      // 新規ノード作成時はensure付きでロック要求（エッジ情報も含む）
+      // ノードタイプを正しくDB categoryに変換
+      let category = 'Why'; // デフォルト
+      if (newNode.data.type === 'root') category = 'Root';
+      else if (newNode.data.type === 'cause') category = 'Cause';
+      else if (newNode.data.type === 'action') category = 'Action';
+      else if (newNode.data.type === 'why') category = 'Why';
+
+      lockNodeSafely(childId, {
+        content: newNode.data.label,
+        position: { x: newNode.position.x, y: newNode.position.y },
+        category,
+        adopted: newNode.data.adopted,
+        depth: 0,
+        tags: [],
+        prevNodes: [parentId],
+        nextNodes: []
+      });
 
       // 整列: 追加後に同一親の子を等間隔に再配置
       setTimeout(() => layoutChildren(parentId), 0);
     },
-    [boardId, enhanceNode, getChildren, layoutChildren, nodes, setEdges, setNodes, socketLockNode, saveEdgesToRemote]
+    [boardId, enhanceNode, getChildren, isBoardFinalized, layoutChildren, lockNodeSafely, nodes, setEdges, setNodes, warnBoardFinalized]
   );
 
   useEffect(() => {
@@ -534,15 +659,17 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
   // MARK: XYFlow — 既存ハンドル同士の接続（エッジのみ追加）
   const onConnect = useCallback(
     (connection: Connection) => {
+      if (isBoardFinalized) {
+        warnBoardFinalized();
+        return;
+      }
       if (!connection.source || !connection.target) return;
 
       setEdges((eds) => addEdge({ ...connection, type: EDGE_TYPE, markerEnd: { type: MarkerType.ArrowClosed } }, eds));
       didConnectRef.current = true;
 
-      // エッジ作成後も自動保存（リアルタイムモードでもエッジ情報を永続化）
-      saveEdgesToRemote();
     },
-    [setEdges, saveEdgesToRemote]
+    [isBoardFinalized, setEdges, warnBoardFinalized]
   );
 
   // MARK: XYFlow — 右ハンドルからのドラッグ開始。接続元の nodeId を保持
@@ -615,19 +742,51 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
   // MARK: ノード変更 — 影響親の再整列（自由移動を優先するため実行は抑止）
   const onNodesChangeWithLayout = useCallback(
     (changes: NodeChange<RFNode<WhyNodeData>>[]) => {
+      if (isBoardFinalized) {
+        warnBoardFinalized();
+        return;
+      }
       onNodesChange(changes);
       const affectedParents = new Set<string>();
+      const positionChanges: { nodeId: string; position: { x: number; y: number } }[] = [];
+
       changes.forEach((c) => {
         if (c.type === "position" && c.position) {
           const parentId = getParent(c.id);
           affectedParents.add(parentId ?? c.id);
+
+          // 位置変更をSocket.IO経由でDBに保存
+          positionChanges.push({
+            nodeId: c.id,
+            position: { x: c.position.x, y: c.position.y }
+          });
         }
       });
+
+      // debounce処理でドラッグ中の大量イベントを制御
+      if (positionChanges.length > 0) {
+        // 既存のタイマーをクリア
+        if (positionUpdateTimerRef.current) {
+          clearTimeout(positionUpdateTimerRef.current);
+        }
+
+        // 500ms後に位置をDB保存
+        positionUpdateTimerRef.current = setTimeout(() => {
+          positionChanges.forEach(({ nodeId, position }) => {
+            // 現在のノード情報を取得してcontentと一緒に送信
+            const currentNode = nodes.find(n => n.id === nodeId);
+            if (currentNode) {
+              notifyNodeUpdateSafely(nodeId, currentNode.data.label, position);
+            }
+          });
+        }, 500);
+      }
+
       // NOTE: 子の自由移動を許可するため、移動直後の自動整列はオフ
       // 再度オンにしたい場合は以下を有効化
       // affectedParents.forEach((id) => layoutChildren(id));
     },
-    [getParent, onNodesChange]
+    [getParent, isBoardFinalized, nodes, notifyNodeUpdateSafely, onNodesChange, warnBoardFinalized]
   );
 
   // 初期ノードへコールバックを付与
@@ -656,8 +815,15 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
         console.error('[WhyBoard] Failed to load board from server', res.statusText);
         return;
       }
-      const data = (await res.json()) as { graph?: SerializedGraph };
+      const data = (await res.json()) as { graph?: SerializedGraph; board?: BoardMeta };
       const graph = data?.graph;
+      if (data?.board) {
+        setBoardMeta(data.board);
+        setIsBoardFinalized(data.board.status === 'FINALIZED');
+      } else {
+        setBoardMeta(null);
+        setIsBoardFinalized(false);
+      }
       console.debug('[WhyBoard] loadRemoteFromServer:received', {
         hasGraph: !!graph,
         nodeCount: graph?.nodes?.length || 0,
@@ -670,13 +836,16 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
         if (!mountedRef.current) return;
         setNodes(n2);
         setEdges(e2);
-        requestAnimationFrame(() => {
-          try {
-            rf.fitView({ padding: FITVIEW_PADDING });
-          } catch (error) {
-            console.warn('[WhyBoard] loadRemoteFromServer: fitView failed', error);
-          }
-        });
+        // ルートノードのみの場合はfitViewしない（画面いっぱい表示を防ぐ）
+        if (n2.length > 1) {
+          requestAnimationFrame(() => {
+            try {
+              rf.fitView({ padding: FITVIEW_PADDING });
+            } catch (error) {
+              console.warn('[WhyBoard] loadRemoteFromServer: fitView failed', error);
+            }
+          });
+        }
         console.debug('[WhyBoard] loadRemoteFromServer:applied', {
           nodeCount: graph.nodes.length,
           edgeCount: graph.edges.length,
@@ -694,7 +863,7 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
         setIsRemoteSyncing(false);
       }
     }
-  }, [apiEndpoint, boardId, rf, setEdges, setIsRemoteSyncing, setNodes, showToast]);
+  }, [apiEndpoint, boardId, rf, setBoardMeta, setEdges, setIsBoardFinalized, setIsRemoteSyncing, setNodes, showToast]);
 
   useEffect(() => {
     console.log('[WhyBoard] useEffect loadRemoteFromServer triggered');
@@ -718,7 +887,10 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
           const { nodes: n2, edges: e2 } = deserializeGraph(parsed, enhanceNode);
           setNodes(n2);
           setEdges(e2);
-          setTimeout(() => rf.fitView({ padding: FITVIEW_PADDING }), 0);
+          // ルートノードのみの場合はfitViewしない（画面いっぱい表示を防ぐ）
+          if (n2.length > 1) {
+            setTimeout(() => rf.fitView({ padding: FITVIEW_PADDING }), 0);
+          }
         } catch (error) {
           console.error('[WhyBoard] loadLocal error', error);
         }
@@ -745,7 +917,11 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
           console.error('[WhyBoard] Failed to save board to server', res.statusText);
           return;
         }
-        const data = (await res.json()) as { graph?: SerializedGraph };
+        const data = (await res.json()) as { graph?: SerializedGraph; board?: BoardMeta };
+        if (data?.board) {
+          setBoardMeta(data.board);
+          setIsBoardFinalized(data.board.status === 'FINALIZED');
+        }
         if (data?.graph && Array.isArray(data.graph.nodes)) {
           const enhancer = enhanceNodeRef.current;
           const { nodes: n2, edges: e2 } = deserializeGraph(data.graph, enhancer);
@@ -787,7 +963,10 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
         const { nodes: n2, edges: e2 } = deserializeGraph(s, enhanceNode);
         setNodes(n2);
         setEdges(e2);
-        setTimeout(() => rf.fitView({ padding: FITVIEW_PADDING }), 0);
+        // ルートノードのみの場合はfitViewしない（画面いっぱい表示を防ぐ）
+        if (n2.length > 1) {
+          setTimeout(() => rf.fitView({ padding: FITVIEW_PADDING }), 0);
+        }
       } catch (e) {
         console.error(e);
       }
@@ -885,46 +1064,21 @@ function CanvasInner({ tenantId, boardId, style }: Props, ref: React.Ref<BoardHa
       }
     },
     clearBoard: () => {
-      // rootノードを再生成（enhanceNodeでコールバックを注入）
-      const root = enhanceNode({
-        id: 'root',
-        type: 'why',
-        position: { x: DEFAULT_ROOT_POS.x, y: DEFAULT_ROOT_POS.y },
-        data: {
-          label: '',
-          type: 'root',
-          adopted: false,
-          boardId,
-          createdAt: Date.now(),
-          // 以下ダミー。enhanceNodeで正しい関数に入れ替わります
-          onChangeLabel: () => {},
-          onToggleAdopted: () => {},
-          getParentInfo: () => ({}),
-          canDelete: () => true,
-          onDelete: () => {},
-          onAddChild: () => {},
-          onUpdateHeight: () => {},
-          hasChildren: () => false,
-          openMenu: () => {},
-          closeMenu: () => {},
-          isMenuOpen: false,
-        },
-      });
-      setNodes([root]);
-      setEdges([]);
-      // 視点リセット（任意）
-      try { rf.setViewport({ x: 0, y: 0, zoom: 1 }); } catch {}
-      setTimeout(() => rf.fitView({ padding: FITVIEW_PADDING }), 0);
+      // Socket.IO経由でサーバー側クリア実行
+      sendBoardActionSafely('clear');
     },
     relayoutAll: () => {
-      // すべての親ノード（エッジのsource）について順に整列
-      const parentIds = Array.from(new Set(edges.map(e => e.source)));
-      setNodes(prev =>
-        parentIds.reduce((acc, pid) => computeLayoutForParent(acc, edges, pid), prev)
-      );
+      // Socket.IO経由でサーバー側整列実行
+      sendBoardActionSafely('relayout');
+    },
+    finalizeBoard: () => {
+      sendBoardActionSafely('finalize');
     },
     fitView: () => {
       try { rf.fitView({ padding: FITVIEW_PADDING }); } catch {}
+    },
+    sendBoardAction: (action: 'relayout' | 'clear' | 'finalize') => {
+      sendBoardActionSafely(action);
     },
   }));
 

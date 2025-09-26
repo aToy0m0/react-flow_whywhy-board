@@ -1,5 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import type { Route } from "next";
 import WhyBoardCanvas from "@/components/WhyBoardCanvas";
 import Sidebar from "@/components/Sidebar";
 import Header from "@/components/Header";
@@ -9,10 +11,12 @@ export default function BoardPage({ params }: { params: { tenantId: string; boar
   const { tenantId, boardId } = params;
   const ref = useRef<BoardHandle>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const router = useRouter();
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [boardName, setBoardName] = useState<string>(boardId);
   const [isRenaming, setIsRenaming] = useState(false);
+  const [isBoardFinalized, setIsBoardFinalized] = useState(false);
 
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
 
@@ -21,11 +25,19 @@ export default function BoardPage({ params }: { params: { tenantId: string; boar
     async function fetchBoard() {
       try {
         const res = await fetch(`/api/tenants/${tenantId}/boards/${boardId}`);
+        if (res.status === 410) {
+          window.alert('このボードは削除されています。ボード一覧に戻ります。');
+          router.replace(`/tenants/${tenantId}/boards`);
+          return;
+        }
         if (!res.ok) return;
         const data = await res.json().catch(() => null);
         if (!active || !data?.ok) return;
         if (typeof data.board?.name === "string" && data.board.name.trim()) {
           setBoardName(data.board.name);
+        }
+        if (data.board?.status) {
+          setIsBoardFinalized(data.board.status === 'FINALIZED');
         }
       } catch {
         // ignore fetch errors
@@ -36,7 +48,13 @@ export default function BoardPage({ params }: { params: { tenantId: string; boar
     return () => {
       active = false;
     };
-  }, [tenantId, boardId]);
+  }, [tenantId, boardId, router]);
+
+  const handleBoardDeleted = useCallback((event: { redirectTo?: string }) => {
+    const destination = event.redirectTo || `/tenants/${tenantId}/boards`;
+    window.alert('ボードが削除されました。ボード一覧に移動します。');
+    router.replace(destination as Route);
+  }, [router, tenantId]);
 
   const handleRename = useCallback(async () => {
     if (isRenaming) return;
@@ -106,6 +124,7 @@ export default function BoardPage({ params }: { params: { tenantId: string; boar
           renaming={isRenaming}
           onToggleSidebar={toggleSidebar}
           boardRef={ref}
+          isBoardFinalized={isBoardFinalized}
         />
 
         {/* Canvas */}
@@ -115,7 +134,13 @@ export default function BoardPage({ params }: { params: { tenantId: string; boar
             backgroundSize: '24px 24px'
           }} />
           <div className="relative z-10 h-full">
-            <WhyBoardCanvas ref={ref} tenantId={tenantId} boardId={boardId} />
+          <WhyBoardCanvas
+            ref={ref}
+            tenantId={tenantId}
+            boardId={boardId}
+            onBoardStateChange={(state) => setIsBoardFinalized(state.isFinalized)}
+            onBoardDeleted={handleBoardDeleted}
+          />
           </div>
         </div>
 

@@ -32,5 +32,7 @@ export type BoardHandle = {
   exportPng: () => Promise<void>;
   clearBoard: () => void;   // 追加: 盤面クリア
   relayoutAll: () => void;  // 追加: 全体整列
+  finalizeBoard: () => void; // 追加: ボード成立
   fitView: () => void;      // 追加: 表示領域にフィット
+  sendBoardAction: (action: 'relayout' | 'clear' | 'finalize') => void;  // 追加: ボードアクション送信
 };

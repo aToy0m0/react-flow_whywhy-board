@@ -25,10 +25,17 @@ export default function BoardListClient({ tenantId, initialBoards }: Props) {
     startDeleteTransition(async () => {
       try {
         const res = await fetch(`/api/tenants/${tenantId}/boards/${boardKey}`, { method: 'DELETE' });
+
+        if (res.status === 204) {
+          setBoards((prev) => prev.filter((board) => board.boardKey !== boardKey));
+          return;
+        }
+
         const data = await res.json().catch(() => null);
-        if (!res.ok || !data?.ok) {
+        if (!res.ok || data?.ok !== true) {
           throw new Error(data?.error ?? 'ボードの削除に失敗しました。');
         }
+
         setBoards((prev) => prev.filter((board) => board.boardKey !== boardKey));
       } catch (error) {
         window.alert(error instanceof Error ? error.message : 'ボードの削除に失敗しました。');

@@ -7,9 +7,13 @@ interface UseSocketOptions {
   userId: string;
   onNodeLocked?: (data: { nodeId: string; userId: string; userName: string; lockedAt: string }) => void;
   onNodeUnlocked?: (data: { nodeId: string; userId: string }) => void;
-  onNodeUpdated?: (data: { nodeId: string; content: string; position: { x: number; y: number }; userId: string }) => void;
+  onNodeUpdated?: (data: { nodeId: string; content: string; position: { x: number; y: number }; userId: string; adopted?: boolean; type?: string }) => void;
   onUserJoined?: (data: { userId: string; socketId: string }) => void;
   onUserLeft?: (data: { userId: string; socketId: string }) => void;
+  onBoardAction?: (data: { action: 'relayout' | 'clear' | 'finalize'; initiatedBy: string; timestamp: string }) => void;
+  onBoardReloadRequired?: (data: { action: 'relayout' | 'clear' | 'finalize' | 'node-created'; initiatedBy: string; timestamp: string }) => void;
+  onBoardFinalized?: (data: { status: 'finalized'; initiatedBy: string; finalizedAt: string }) => void;
+  onBoardDeleted?: (data: { boardId: string; boardKey?: string; initiatedBy: string; deletedAt: string; redirectTo: string }) => void;
 }
 
 export function useSocket(options: UseSocketOptions) {
@@ -21,7 +25,11 @@ export function useSocket(options: UseSocketOptions) {
     onNodeUnlocked,
     onNodeUpdated,
     onUserJoined,
-    onUserLeft
+    onUserLeft,
+    onBoardAction,
+    onBoardReloadRequired,
+    onBoardFinalized,
+    onBoardDeleted,
   } = options;
 
   const socketRef = useRef<Socket | null>(null);
@@ -35,16 +43,24 @@ export function useSocket(options: UseSocketOptions) {
   const updatedRef = useRef(onNodeUpdated);
   const joinedRef = useRef(onUserJoined);
   const leftRef = useRef(onUserLeft);
+  const boardActionRef = useRef(onBoardAction);
+  const boardReloadRequiredRef = useRef(onBoardReloadRequired);
+  const boardFinalizedRef = useRef(onBoardFinalized);
+  const boardDeletedRef = useRef(onBoardDeleted);
 
   useEffect(() => { lockedRef.current = onNodeLocked; }, [onNodeLocked]);
   useEffect(() => { unlockedRef.current = onNodeUnlocked; }, [onNodeUnlocked]);
   useEffect(() => { updatedRef.current = onNodeUpdated; }, [onNodeUpdated]);
   useEffect(() => { joinedRef.current = onUserJoined; }, [onUserJoined]);
   useEffect(() => { leftRef.current = onUserLeft; }, [onUserLeft]);
+  useEffect(() => { boardActionRef.current = onBoardAction; }, [onBoardAction]);
+  useEffect(() => { boardReloadRequiredRef.current = onBoardReloadRequired; }, [onBoardReloadRequired]);
+  useEffect(() => { boardFinalizedRef.current = onBoardFinalized; }, [onBoardFinalized]);
+  useEffect(() => { boardDeletedRef.current = onBoardDeleted; }, [onBoardDeleted]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    if (!tenantId || !boardKey || !userId) return;
+    if (!tenantId || !boardKey || !userId || userId === 'anonymous') return;
 
     // 既存socketがあれば使う（作り直さない）
     if (!socketRef.current) {
@@ -87,9 +103,19 @@ export function useSocket(options: UseSocketOptions) {
       // イベントハンドラをref経由に変更
       s.on('node-locked', (d) => lockedRef.current?.(d));
       s.on('node-unlocked', (d) => unlockedRef.current?.(d));
+      s.on('nodes-unlocked', (d: { userId: string; nodeIds: string[] }) => {
+        if (!Array.isArray(d?.nodeIds)) return;
+        d.nodeIds.forEach((nodeId) => {
+          unlockedRef.current?.({ nodeId, userId: d.userId });
+        });
+      });
       s.on('node-updated', (d) => updatedRef.current?.(d));
       s.on('user-joined', (d) => joinedRef.current?.(d));
       s.on('user-left', (d) => leftRef.current?.(d));
+      s.on('board-action', (d) => boardActionRef.current?.(d));
+      s.on('board-reload-required', (d) => boardReloadRequiredRef.current?.(d));
+      s.on('board-finalized', (d) => boardFinalizedRef.current?.(d));
+      s.on('board-deleted', (d) => boardDeletedRef.current?.(d));
 
       // join確認でリアルタイムモード確実化
       s.on('joined', ({ roomId, userId }) => {
@@ -103,8 +129,13 @@ export function useSocket(options: UseSocketOptions) {
       });
 
       s.on('unlock-error', (data) => {
-        console.error('[Socket.IO] Unlock error:', data);
-        setError(`Unlock error: ${data.error}`);
+        // "No active lock found"は正常なケースなのでエラーログを抑制
+        if (data.error === 'No active lock found') {
+          console.debug('[Socket.IO] Unlock skipped (no active lock):', data.nodeId);
+        } else {
+          console.error('[Socket.IO] Unlock error:', data);
+          setError(`Unlock error: ${data.error}`);
+        }
       });
 
       s.on('node-saved', (data) => {
@@ -114,6 +145,11 @@ export function useSocket(options: UseSocketOptions) {
       s.on('node-save-error', (data) => {
         console.error('[Socket.IO] Node save error:', data);
         setError(`Save error: ${data.error}`);
+      });
+
+      s.on('board-action-error', (data) => {
+        console.warn('[Socket.IO] Board action error:', data);
+        setError(`Board action error: ${data?.error ?? 'Unknown error'}`);
       });
     }
 
@@ -132,6 +168,9 @@ export function useSocket(options: UseSocketOptions) {
     category?: string;
     depth?: number;
     tags?: string[];
+    prevNodes?: string[];
+    nextNodes?: string[];
+    adopted?: boolean;
   }) => {
     if (socketRef.current?.connected) {
       socketRef.current.emit('lock-node', { nodeId, ensure });
@@ -145,15 +184,24 @@ export function useSocket(options: UseSocketOptions) {
     }
   };
 
-  // ノード更新通知（シンプル版）
-  const notifyNodeUpdate = (nodeId: string, content: string, position?: { x: number; y: number }) => {
+  // ノード更新通知（拡張版：採用状態やタイプも送信可能）
+  const notifyNodeUpdate = (nodeId: string, content: string, position?: { x: number; y: number }, extraData?: { adopted?: boolean; type?: string }) => {
     if (socketRef.current?.connected) {
-      console.log('[Socket.IO] Sending node update:', { nodeId, content });
+      console.log('[Socket.IO] Sending node update:', { nodeId, content, extraData });
       socketRef.current.emit('node-updated', {
         nodeId,
         content,
-        position
+        position,
+        ...extraData
       });
+    }
+  };
+
+  // ボードアクション送信（整列・クリア）
+  const sendBoardAction = (action: 'relayout' | 'clear' | 'finalize') => {
+    if (socketRef.current?.connected) {
+      console.log('[Socket.IO] Sending board action:', action);
+      socketRef.current.emit('board-action', { action });
     }
   };
 
@@ -163,6 +211,7 @@ export function useSocket(options: UseSocketOptions) {
     lockNode,
     unlockNode,
     notifyNodeUpdate,
+    sendBoardAction,
     socket: socketRef.current
   };
 }

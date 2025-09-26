@@ -35,6 +35,7 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
   const { index } = d.getParentInfo(id);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [editTimeout, setEditTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [syncTimeout, setSyncTimeout] = useState<NodeJS.Timeout | null>(null);
 
   // ロック機能フック
   const {
@@ -72,6 +73,31 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
     }
   }, [canEdit, d, id]);
 
+  // テキスト変更時のSocket.IO同期処理（debounce）
+  const handleTextChange = useCallback((newValue: string) => {
+    // ローカル状態を即座に更新（UIの応答性）
+    d.onChangeLabel(id, newValue);
+
+    console.log('[WhyNode] Text changed:', { id, newValue: newValue.substring(0, 20), canEdit });
+
+    // Socket.IOでの同期（500msのdebounce）
+    if (syncTimeout) {
+      clearTimeout(syncTimeout);
+    }
+
+    const timeout = setTimeout(() => {
+      if (d.notifyNodeUpdate && canEdit) {
+        console.log('[WhyNode] Sending sync via notifyNodeUpdate:', { id, newValue: newValue.substring(0, 20) });
+        // 実際のノード位置は使用せず、テキストのみ同期
+        d.notifyNodeUpdate(id, newValue);
+      } else {
+        console.log('[WhyNode] Sync skipped:', { hasNotify: !!d.notifyNodeUpdate, canEdit });
+      }
+    }, 500);
+
+    setSyncTimeout(timeout);
+  }, [syncTimeout, d, id, canEdit]);
+
   // 編集終了時のロック解除処理
   const handleEditEnd = useCallback(() => {
     if (editTimeout) {
@@ -79,13 +105,24 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
     }
 
     const timeout = setTimeout(() => {
-      if (d.unlockNode && lockedByMe) {
+      // ロック状態を再確認してから解除
+      console.log('[WhyNode] Unlock conditions:', {
+        hasUnlockNode: !!d.unlockNode,
+        lockedByMe,
+        currentUserId: d.currentUserId,
+        isLockedByCurrentUser: isNodeLockedByCurrentUser(id, d.currentUserId || '')
+      });
+
+      if (d.unlockNode && lockedByMe && isNodeLockedByCurrentUser(id, d.currentUserId || '')) {
+        console.log('[WhyNode] Executing unlock for node:', id);
         d.unlockNode(id);
+      } else {
+        console.log('[WhyNode] Unlock skipped - conditions not met');
       }
     }, 2000); // 2秒後に自動でロック解除
 
     setEditTimeout(timeout);
-  }, [editTimeout, d, lockedByMe, id]);
+  }, [editTimeout, d, lockedByMe, id, isNodeLockedByCurrentUser]);
 
   // コンポーネントがアンマウントされる時のクリーンアップ
   useEffect(() => {
@@ -93,11 +130,15 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
       if (editTimeout) {
         clearTimeout(editTimeout);
       }
-      if (lockedByMe && d.unlockNode) {
+      if (syncTimeout) {
+        clearTimeout(syncTimeout);
+      }
+      // アンマウント時は確実に自分のロックがある場合のみ解除
+      if (lockedByMe && d.unlockNode && isNodeLockedByCurrentUser(id, d.currentUserId || '')) {
         d.unlockNode(id);
       }
     };
-  }, [editTimeout, lockedByMe, d, id]);
+  }, [editTimeout, syncTimeout, lockedByMe, d, id, isNodeLockedByCurrentUser]);
 
   return (
     <div
@@ -123,7 +164,9 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
             disabled={d.type === "action" || d.type === "cause"}
             className={clsx(
               "px-3 py-2 text-left hover:bg-gray-100",
-              (d.type === "action" || d.type === "cause") && "opacity-50 cursor-not-allowed"
+              (d.type === "action" || d.type === "cause")
+                ? "text-gray-400 cursor-not-allowed"
+                : "text-black"
             )}
             onClick={(e) => {
               e.stopPropagation();
@@ -137,7 +180,9 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
             disabled={d.type === "action" || d.type === "cause"}
             className={clsx(
               "px-3 py-2 text-left hover:bg-gray-100",
-              (d.type === "action" || d.type === "cause") && "opacity-50 cursor-not-allowed"
+              (d.type === "action" || d.type === "cause")
+                ? "text-gray-400 cursor-not-allowed"
+                : "text-black"
             )}
             onClick={(e) => {
               e.stopPropagation();
@@ -151,7 +196,9 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
             disabled={d.type !== "cause"}
             className={clsx(
               "px-3 py-2 text-left hover:bg-gray-100",
-              d.type !== "cause" && "opacity-50 cursor-not-allowed"
+              d.type !== "cause"
+                ? "text-gray-400 cursor-not-allowed"
+                : "text-black"
             )}
             onClick={(e) => {
               e.stopPropagation();
@@ -165,7 +212,9 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
             disabled={!d.canDelete(id)}
             className={clsx(
               "px-3 py-2 text-left hover:bg-gray-100 border-t",
-              !d.canDelete(id) && "opacity-50 cursor-not-allowed"
+              !d.canDelete(id)
+                ? "text-gray-400 cursor-not-allowed"
+                : "text-black"
             )}
             onClick={(e) => {
               e.stopPropagation();
@@ -204,14 +253,17 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
           </label>
         )}
       </div>
+      
+      {/* MARK: textarea */}
+
       <textarea
         ref={textareaRef}
         value={d.label}
         readOnly={!canEdit}
         onChange={(e) => {
           if (canEdit) {
-            d.onChangeLabel(id, e.target.value);
-            handleEditEnd(); // 編集時にタイマーリセット
+            handleTextChange(e.target.value);
+            // handleEditEnd()は削除: onChange毎にロック解除タイマーをリセットしない
           }
         }}
         onFocus={handleEditStart}

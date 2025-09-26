@@ -175,21 +175,32 @@ async function ensureTenant(tenantSlug: string) {
 }
 
 async function ensureBoard(tenantId: string, boardKey: string, name?: string) {
-  // 1回のトランザクションでボードとrootノードを原子的に作成
   return await prisma.$transaction(async (tx) => {
-    const board = await tx.board.upsert({
+    let board = await tx.board.findUnique({
       where: { tenantId_boardKey: { tenantId, boardKey } },
-      update: {
-        name: name ?? DEFAULT_BOARD_NAME,
-      },
-      create: {
-        tenantId,
-        boardKey,
-        name: name ?? DEFAULT_BOARD_NAME,
-      },
     });
 
-    // rootノードの存在確認とupsert
+    if (board) {
+      if (board.deletedAt) {
+        throw new Error('BOARD_DELETED');
+      }
+      if (name && board.name !== name) {
+        board = await tx.board.update({
+          where: { id: board.id },
+          data: { name },
+        });
+      }
+    } else {
+      board = await tx.board.create({
+        data: {
+          tenantId,
+          boardKey,
+          name: name ?? DEFAULT_BOARD_NAME,
+          status: 'ACTIVE',
+        },
+      });
+    }
+
     const existingRootNode = await tx.node.findFirst({
       where: { boardId: board.id, nodeKey: 'root' }
     });
@@ -211,7 +222,7 @@ async function ensureBoard(tenantId: string, boardKey: string, name?: string) {
           adopted: false
         }
       });
-      console.log('[API] Created root node for new board:', { boardId: board.id, boardKey });
+      console.log('[API] Created root node for board:', { boardId: board.id, boardKey });
     }
 
     return board;
@@ -233,7 +244,19 @@ export async function GET(
     return NextResponse.json({ board: null, graph: { nodes: [], edges: [] } });
   }
 
-  const board = await ensureBoard(tenant.id, boardKey);
+  let board: Awaited<ReturnType<typeof ensureBoard>>;
+  try {
+    board = await ensureBoard(tenant.id, boardKey);
+  } catch (error) {
+    if (error instanceof Error && error.message === 'BOARD_DELETED') {
+      return NextResponse.json({ board: null, graph: { nodes: [], edges: [] }, error: 'Board deleted' }, { status: 410 });
+    }
+    throw error;
+  }
+
+  if (board.deletedAt) {
+    return NextResponse.json({ board: null, graph: { nodes: [], edges: [] }, error: 'Board deleted' }, { status: 410 });
+  }
 
   const nodes = await prisma.node.findMany({
     where: { boardId: board.id },
@@ -270,6 +293,9 @@ export async function GET(
       boardKey: board.boardKey,
       name: board.name,
       tenantId: tenant.slug,
+      status: board.status,
+      finalizedAt: board.finalizedAt,
+      deletedAt: board.deletedAt,
     },
     graph,
   });
@@ -313,7 +339,23 @@ export async function PUT(
   }
 
   const tenant = await ensureTenant(tenantSlug);
-  const board = await ensureBoard(tenant.id, boardKey, payload.name ?? boardKey);
+  let board: Awaited<ReturnType<typeof ensureBoard>>;
+  try {
+    board = await ensureBoard(tenant.id, boardKey, payload.name ?? boardKey);
+  } catch (error) {
+    if (error instanceof Error && error.message === 'BOARD_DELETED') {
+      return NextResponse.json({ error: 'Board deleted' }, { status: 410 });
+    }
+    throw error;
+  }
+
+  if (board.deletedAt) {
+    return NextResponse.json({ error: 'Board deleted' }, { status: 410 });
+  }
+
+  if (board.status === 'FINALIZED') {
+    return NextResponse.json({ error: 'Board finalized' }, { status: 409 });
+  }
 
   const currentUser = await getCurrentUser(session);
   if (!currentUser) {
@@ -477,6 +519,9 @@ export async function PUT(
       boardKey: board.boardKey,
       name: board.name,
       tenantId: tenant.slug,
+      status: board.status,
+      finalizedAt: board.finalizedAt,
+      deletedAt: board.deletedAt,
     },
     graph,
   });

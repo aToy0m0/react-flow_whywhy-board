@@ -20,6 +20,13 @@ enum UserRole {
   MEMBER
 }
 
+enum BoardStatus {
+  DRAFT
+  ACTIVE
+  FINALIZED
+  ARCHIVED
+}
+
 model Tenant {
   id        String   @id @default(cuid())
   slug      String   @unique
@@ -33,20 +40,25 @@ model Tenant {
 }
 
 model Board {
-  id        String   @id @default(cuid())
-  tenantId  String
-  boardKey  String
-  name      String
-  ownerId   String?
-  tenant    Tenant   @relation(fields: [tenantId], references: [id])
-  owner     User?    @relation("BoardOwner", fields: [ownerId], references: [id])
-  nodes     Node[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String       @id @default(cuid())
+  tenantId    String
+  boardKey    String
+  name        String
+  ownerId     String?
+  status      BoardStatus  @default(ACTIVE)
+  finalizedAt DateTime?
+  deletedAt   DateTime?
+  tenant      Tenant       @relation(fields: [tenantId], references: [id])
+  owner       User?        @relation("BoardOwner", fields: [ownerId], references: [id])
+  nodes       Node[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 
   @@unique([tenantId, boardKey])
   @@index([tenantId])
   @@index([ownerId])
+  @@index([tenantId, status])
+  @@index([tenantId, deletedAt])
 }
 
 model Node {
