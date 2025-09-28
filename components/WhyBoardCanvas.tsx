@@ -95,7 +95,7 @@ function CanvasInner({ tenantId, boardId, style, onBoardStateChange, onBoardDele
   } = useNodeLock();
   const currentUserId = session?.user?.id || '';
   const [isBoardFinalized, setIsBoardFinalized] = useState(false);
-  const loadRemoteFromServerRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  const loadRemoteFromServerRef = useRef<(options?: { fitView?: boolean }) => Promise<void>>(() => Promise.resolve());
 
 
 
@@ -145,14 +145,14 @@ function CanvasInner({ tenantId, boardId, style, onBoardStateChange, onBoardDele
 
       if (data.action === 'relayout') {
         if (isInitiator) {
-          loadRemoteFromServerRef.current();
+          loadRemoteFromServerRef.current({ fitView: false });
         } else {
           const parentIds = Array.from(new Set(edges.map(e => e.source)));
           setNodes(prev => parentIds.reduce((acc, pid) => computeLayoutForParent(acc, edges, pid), prev));
         }
       } else if (data.action === 'clear') {
         if (isInitiator) {
-          loadRemoteFromServerRef.current();
+          loadRemoteFromServerRef.current({ fitView: false });
         } else {
           const root = enhanceNode({
             id: 'root',
@@ -193,10 +193,10 @@ function CanvasInner({ tenantId, boardId, style, onBoardStateChange, onBoardDele
 
       if (data.action === 'node-created') {
         if (!isInitiator) {
-          loadRemoteFromServerRef.current();
+          loadRemoteFromServerRef.current({ fitView: false });
         }
       } else {
-        loadRemoteFromServerRef.current();
+        loadRemoteFromServerRef.current({ fitView: false });
       }
 
       if (data.action === 'finalize') {
@@ -221,7 +221,7 @@ function CanvasInner({ tenantId, boardId, style, onBoardStateChange, onBoardDele
       const isInitiator = data.deletedBy === session?.user?.id;
       if (!isInitiator) {
         showToast('ノードが削除されました');
-        loadRemoteFromServerRef.current();
+        loadRemoteFromServerRef.current({ fitView: false });
       }
     },
     onBoardDeleted: (data) => {
@@ -861,15 +861,16 @@ function CanvasInner({ tenantId, boardId, style, onBoardStateChange, onBoardDele
     setNodes((nds) => nds.map((n) => ({ ...n, data: { ...n.data, isMenuOpen: n.id === menuOpenFor } })));
   }, [menuOpenFor, setNodes]);
 
-  const loadRemoteFromServer = useCallback(async () => {
-    console.log('[WhyBoard] loadRemoteFromServer called', { mounted: mountedRef.current, apiEndpoint });
+  const loadRemoteFromServer = useCallback(async (options?: { fitView?: boolean }) => {
+    const shouldFitView = options?.fitView ?? true;
+    console.log('[WhyBoard] loadRemoteFromServer called', { mounted: mountedRef.current, apiEndpoint, shouldFitView });
     if (!mountedRef.current) {
       console.log('[WhyBoard] loadRemoteFromServer:early return - not mounted');
       return;
     }
     setIsRemoteSyncing(true);
     try {
-      console.debug('[WhyBoard] loadRemoteFromServer:start', { endpoint: apiEndpoint });
+      console.debug('[WhyBoard] loadRemoteFromServer:start', { endpoint: apiEndpoint, shouldFitView });
       const headers: HeadersInit = {};
       const res = await fetch(apiEndpoint, { cache: 'no-store', credentials: 'include', headers });
       if (!res.ok) {
@@ -898,7 +899,7 @@ function CanvasInner({ tenantId, boardId, style, onBoardStateChange, onBoardDele
         setNodes(n2);
         setEdges(e2);
         // ルートノードのみの場合はfitViewしない（画面いっぱい表示を防ぐ）
-        if (n2.length > 1) {
+        if (shouldFitView && n2.length > 1) {
           requestAnimationFrame(() => {
             try {
               rf.fitView({ padding: FITVIEW_PADDING });
@@ -927,7 +928,7 @@ function CanvasInner({ tenantId, boardId, style, onBoardStateChange, onBoardDele
   }, [apiEndpoint, boardId, rf, setBoardMeta, setEdges, setIsBoardFinalized, setIsRemoteSyncing, setNodes, showToast]);
 
   useEffect(() => {
-    loadRemoteFromServerRef.current = () => loadRemoteFromServer();
+    loadRemoteFromServerRef.current = (options) => loadRemoteFromServer(options);
   }, [loadRemoteFromServer]);
 
   useEffect(() => {

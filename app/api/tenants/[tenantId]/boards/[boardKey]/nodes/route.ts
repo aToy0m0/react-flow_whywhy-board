@@ -206,8 +206,8 @@ async function ensureBoard(tenantId: string, boardKey: string, name?: string) {
     });
 
     if (!existingRootNode) {
-      await tx.node.create({
-        data: {
+      await tx.node.createMany({
+        data: [{
           boardId: board.id,
           tenantId,
           nodeKey: 'root',
@@ -220,7 +220,8 @@ async function ensureBoard(tenantId: string, boardKey: string, name?: string) {
           x: 250,
           y: 100,
           adopted: false
-        }
+        }],
+        skipDuplicates: true
       });
       console.log('[API] Created root node for board:', { boardId: board.id, boardKey });
     }

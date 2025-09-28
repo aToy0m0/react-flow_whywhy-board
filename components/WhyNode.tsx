@@ -36,6 +36,7 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [editTimeout, setEditTimeout] = useState<NodeJS.Timeout | null>(null);
   const [syncTimeout, setSyncTimeout] = useState<NodeJS.Timeout | null>(null);
+  const isEditingRef = useRef(false);
 
   // ロック機能フック
   const {
@@ -63,24 +64,26 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
     }
   }, [d.heightHint, d.label]);
 
-  // 編集開始時のロック処理
   const handleEditStart = useCallback(() => {
     if (!canEdit) return;
+
+    if (editTimeout) {
+      clearTimeout(editTimeout);
+      setEditTimeout(null);
+    }
+    isEditingRef.current = true;
 
     // Socket.IOでロック要求
     if (d.lockNode) {
       d.lockNode(id);
     }
-  }, [canEdit, d, id]);
+  }, [canEdit, d, editTimeout, id, setEditTimeout]);
 
-  // テキスト変更時のSocket.IO同期処理（debounce）
   const handleTextChange = useCallback((newValue: string) => {
-    // ローカル状態を即座に更新（UIの応答性）
     d.onChangeLabel(id, newValue);
 
     console.log('[WhyNode] Text changed:', { id, newValue: newValue.substring(0, 20), canEdit });
 
-    // Socket.IOでの同期（500msのdebounce）
     if (syncTimeout) {
       clearTimeout(syncTimeout);
     }
@@ -88,7 +91,6 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
     const timeout = setTimeout(() => {
       if (d.notifyNodeUpdate && canEdit) {
         console.log('[WhyNode] Sending sync via notifyNodeUpdate:', { id, newValue: newValue.substring(0, 20) });
-        // 実際のノード位置は使用せず、テキストのみ同期
         d.notifyNodeUpdate(id, newValue);
       } else {
         console.log('[WhyNode] Sync skipped:', { hasNotify: !!d.notifyNodeUpdate, canEdit });
@@ -98,14 +100,20 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
     setSyncTimeout(timeout);
   }, [syncTimeout, d, id, canEdit]);
 
-  // 編集終了時のロック解除処理
   const handleEditEnd = useCallback(() => {
     if (editTimeout) {
       clearTimeout(editTimeout);
     }
 
+    isEditingRef.current = false;
+
     const timeout = setTimeout(() => {
-      // ロック状態を再確認してから解除
+      if (isEditingRef.current) {
+        console.log('[WhyNode] Unlock skipped - textarea regained focus before timeout');
+        setEditTimeout(null);
+        return;
+      }
+
       console.log('[WhyNode] Unlock conditions:', {
         hasUnlockNode: !!d.unlockNode,
         lockedByMe,
@@ -119,12 +127,12 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
       } else {
         console.log('[WhyNode] Unlock skipped - conditions not met');
       }
-    }, 2000); // 2秒後に自動でロック解除
+      setEditTimeout(null);
+    }, 2000);
 
     setEditTimeout(timeout);
-  }, [editTimeout, d, lockedByMe, id, isNodeLockedByCurrentUser]);
+  }, [d, editTimeout, id, isNodeLockedByCurrentUser, lockedByMe, setEditTimeout]);
 
-  // コンポーネントがアンマウントされる時のクリーンアップ
   useEffect(() => {
     return () => {
       if (editTimeout) {
@@ -133,7 +141,6 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
       if (syncTimeout) {
         clearTimeout(syncTimeout);
       }
-      // アンマウント時は確実に自分のロックがある場合のみ解除
       if (lockedByMe && d.unlockNode && isNodeLockedByCurrentUser(id, d.currentUserId || '')) {
         d.unlockNode(id);
       }

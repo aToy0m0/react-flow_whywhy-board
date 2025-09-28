@@ -313,8 +313,8 @@ app.prepare().then(() => {
           });
 
           // rootノードも作成
-          await prisma.node.create({
-            data: {
+          await prisma.node.createMany({
+            data: [{
               boardId: board.id,
               tenantId: tenant.id,
               nodeKey: 'root',
@@ -327,7 +327,8 @@ app.prepare().then(() => {
               x: 250,
               y: 100,
               adopted: false
-            }
+            }],
+            skipDuplicates: true
           });
 
           console.log('[Socket.IO] Created board and root node:', { boardId: board.id, boardKey });
@@ -435,8 +436,28 @@ app.prepare().then(() => {
                 include: { user: { select: { id: true, email: true } } }
               });
 
+          const otherActiveLocks = await tx.nodeLock.findMany({
+            where: {
+              userId,
+              isActive: true,
+              nodeId: { not: node.id },
+            },
+            include: { node: { select: { id: true, nodeKey: true } } },
+          });
+
+          if (otherActiveLocks.length > 0) {
+            await tx.nodeLock.updateMany({
+              where: {
+                userId,
+                isActive: true,
+                nodeId: { not: node.id },
+              },
+              data: { isActive: false, unlockedAt: new Date() },
+            });
+          }
+
           console.log('[Socket.IO] Lock operation successful:', { lockId: lock.id, userId: lock.userId });
-          return { kind: 'ok', node, lock, nodeWasCreated };
+          return { kind: 'ok', node, lock, nodeWasCreated, releasedNodeIds: otherActiveLocks.map((l) => l.node?.nodeKey ?? l.node?.id).filter((id) => typeof id === 'string') };
         });
 
         console.log('[Socket.IO] Transaction completed:', { resultKind: result.kind });
@@ -457,6 +478,14 @@ app.prepare().then(() => {
           lockedAt: result.lock.lockedAt,
         });
         console.log('[Socket.IO] node-locked event sent successfully');
+
+        if (result.releasedNodeIds && result.releasedNodeIds.length > 0) {
+          console.log('[Socket.IO] Released previous locks for user:', { userId, nodeIds: result.releasedNodeIds });
+          io.to(roomId).emit('nodes-unlocked', {
+            userId,
+            nodeIds: result.releasedNodeIds,
+          });
+        }
 
         // 新規ノード作成時（ensure付き）の場合は再読み込み通知を送信
         if (ensure && result.nodeWasCreated) {
@@ -532,6 +561,13 @@ app.prepare().then(() => {
         });
 
         if (updated.count > 0) {
+          const publicId = node.nodeKey ?? node.id;
+          console.log('[Socket.IO] Node unlocked:', {
+            nodeId: publicId,
+            userId,
+            boardKey,
+            tenantId,
+          });
           io.to(roomId).emit('node-unlocked', { nodeId, userId });
         } else {
           socket.emit('unlock-error', { nodeId, error: 'No active lock found' });
