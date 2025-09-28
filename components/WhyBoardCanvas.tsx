@@ -86,13 +86,21 @@ function CanvasInner({ tenantId, boardId, style, onBoardStateChange, onBoardDele
 
   // セッションとロック機能
   const session = useSession()?.data;
-  const { lockNode: registerLock, unlockNode: releaseLock } = useNodeLock();
+  const {
+    lockNode: registerLock,
+    unlockNode: releaseLock,
+    isNodeLocked,
+    isNodeLockedByCurrentUser,
+    getNodeLockInfo
+  } = useNodeLock();
+  const currentUserId = session?.user?.id || '';
   const [isBoardFinalized, setIsBoardFinalized] = useState(false);
+  const loadRemoteFromServerRef = useRef<() => Promise<void>>(() => Promise.resolve());
 
 
 
   // Socket.IO統合（同時編集用）- 認証済みユーザーのみ
-  const { lockNode: socketLockNode, unlockNode: socketUnlockNode, socket, notifyNodeUpdate: socketNotifyNodeUpdate, sendBoardAction } = useSocket({
+  const { lockNode: socketLockNode, unlockNode: socketUnlockNode, socket, notifyNodeUpdate: socketNotifyNodeUpdate, deleteNode: socketDeleteNode, sendBoardAction } = useSocket({
     tenantId: tenantSlug,
     boardKey: boardId,
     userId: session?.user?.id || '', // 空文字でSocket接続を無効化
@@ -127,50 +135,53 @@ function CanvasInner({ tenantId, boardId, style, onBoardStateChange, onBoardDele
     onUserLeft: (data) => {
       console.log('[WhyBoard] User left:', data);
     },
+    onUserTimeout: (data) => {
+      console.warn('[WhyBoard] User timeout detected:', data);
+      showToast(`ユーザー ${data.userId} がタイムアウトしました`);
+    },
     onBoardAction: (data) => {
       console.log('[WhyBoard] Board action received:', data);
-      // 自分が実行したアクションは除外（重複実行を防ぐ）
-      if (data.action !== 'finalize' && data.initiatedBy === session?.user?.id) {
-        console.log('[WhyBoard] Skipping own board action');
-        return;
-      }
-      // 他のユーザーからのボードアクションを実行
+      const isInitiator = data.initiatedBy === session?.user?.id;
+
       if (data.action === 'relayout') {
-        // 整列実行
-        const parentIds = Array.from(new Set(edges.map(e => e.source)));
-        setNodes(prev =>
-          parentIds.reduce((acc, pid) => computeLayoutForParent(acc, edges, pid), prev)
-        );
+        if (isInitiator) {
+          loadRemoteFromServerRef.current();
+        } else {
+          const parentIds = Array.from(new Set(edges.map(e => e.source)));
+          setNodes(prev => parentIds.reduce((acc, pid) => computeLayoutForParent(acc, edges, pid), prev));
+        }
       } else if (data.action === 'clear') {
-        // クリア実行
-        const root = enhanceNode({
-          id: 'root',
-          type: 'why',
-          position: { x: DEFAULT_ROOT_POS.x, y: DEFAULT_ROOT_POS.y },
-          data: {
-            label: '',
-            type: 'root',
-            adopted: false,
-            boardId,
-            createdAt: Date.now(),
-            // 以下ダミー。enhanceNodeで正しい関数に入れ替わります
-            onChangeLabel: () => {},
-            onToggleAdopted: () => {},
-            getParentInfo: () => ({}),
-            canDelete: () => true,
-            onDelete: () => {},
-            onAddChild: () => {},
-            onUpdateHeight: () => {},
-            hasChildren: () => false,
-            openMenu: () => {},
-            closeMenu: () => {},
-            isMenuOpen: false,
-          },
-        });
-        setNodes([root]);
-        setEdges([]);
-        try { rf.setViewport({ x: 0, y: 0, zoom: 1 }); } catch {}
-        setTimeout(() => rf.fitView({ padding: FITVIEW_PADDING }), 0);
+        if (isInitiator) {
+          loadRemoteFromServerRef.current();
+        } else {
+          const root = enhanceNode({
+            id: 'root',
+            type: 'why',
+            position: { x: DEFAULT_ROOT_POS.x, y: DEFAULT_ROOT_POS.y },
+            data: {
+              label: '',
+              type: 'root',
+              adopted: false,
+              boardId,
+              createdAt: Date.now(),
+              onChangeLabel: () => {},
+              onToggleAdopted: () => {},
+              getParentInfo: () => ({}),
+              canDelete: () => true,
+              onDelete: () => {},
+              onAddChild: () => {},
+              onUpdateHeight: () => {},
+              hasChildren: () => false,
+              openMenu: () => {},
+              closeMenu: () => {},
+              isMenuOpen: false,
+            },
+          });
+          setNodes([root]);
+          setEdges([]);
+          try { rf.setViewport({ x: 0, y: 0, zoom: 1 }); } catch {}
+          setTimeout(() => rf.fitView({ padding: FITVIEW_PADDING }), 0);
+        }
       } else if (data.action === 'finalize') {
         setIsBoardFinalized(true);
       }
@@ -178,22 +189,20 @@ function CanvasInner({ tenantId, boardId, style, onBoardStateChange, onBoardDele
     onBoardReloadRequired: (data) => {
       console.log('[WhyBoard] Board reload required:', data);
 
-      // 自分が実行したアクションは除外（重複実行を防ぐ）
-      if (data.action !== 'finalize' && data.initiatedBy === session?.user?.id) {
-        console.log('[WhyBoard] Skipping own board reload required');
-        return;
-      }
+      const isInitiator = data.initiatedBy === session?.user?.id;
 
-      // ノード作成以外のみDBから再読み込み（ノード作成時はリアルタイム更新で既に反映済み）
-      if (data.action !== 'node-created') {
-        loadRemoteFromServer();
+      if (data.action === 'node-created') {
+        if (!isInitiator) {
+          loadRemoteFromServerRef.current();
+        }
+      } else {
+        loadRemoteFromServerRef.current();
       }
 
       if (data.action === 'finalize') {
         setIsBoardFinalized(true);
       }
 
-      // ユーザーに通知
       const actionText = data.action === 'relayout' ? '整列' :
                         data.action === 'clear' ? 'クリア' :
                         data.action === 'finalize' ? '成立' :
@@ -203,6 +212,17 @@ function CanvasInner({ tenantId, boardId, style, onBoardStateChange, onBoardDele
     onBoardFinalized: (data) => {
       console.log('[WhyBoard] Board finalized event received:', data);
       setIsBoardFinalized(true);
+    },
+    onNodeDeleted: (data) => {
+      console.log('[WhyBoard] Node deleted event received:', data);
+      releaseLock(data.nodeId);
+      setNodes((prev) => prev.filter((node) => node.id !== data.nodeId));
+      setEdges((prev) => prev.filter((edge) => edge.source !== data.nodeId && edge.target !== data.nodeId));
+      const isInitiator = data.deletedBy === session?.user?.id;
+      if (!isInitiator) {
+        showToast('ノードが削除されました');
+        loadRemoteFromServerRef.current();
+      }
     },
     onBoardDeleted: (data) => {
       console.log('[WhyBoard] Board deleted event received:', data);
@@ -267,6 +287,7 @@ function CanvasInner({ tenantId, boardId, style, onBoardStateChange, onBoardDele
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [, setBoardMeta] = useState<BoardMeta | null>(null);
   const positionUpdateTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastLockWarningRef = useRef(0);
 
   useEffect(() => {
     return () => {
@@ -479,8 +500,11 @@ function CanvasInner({ tenantId, boardId, style, onBoardStateChange, onBoardDele
       if (id === "root") return;
       setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id));
       setNodes((nds) => nds.filter((n) => n.id !== id));
+      releaseLock(id);
+      socketDeleteNode?.(id);
+      showToast('ノードを削除しました');
     },
-    [isBoardFinalized, setNodes, setEdges, warnBoardFinalized]
+    [isBoardFinalized, releaseLock, setEdges, setNodes, showToast, socketDeleteNode, warnBoardFinalized]
   );
 
   // MARK: ノード強化 — コールバック/状態を data に注入
@@ -746,35 +770,60 @@ function CanvasInner({ tenantId, boardId, style, onBoardStateChange, onBoardDele
         warnBoardFinalized();
         return;
       }
-      onNodesChange(changes);
+
+      const blockedNodeIds = new Set<string>();
+      const allowedChanges: NodeChange<RFNode<WhyNodeData>>[] = [];
       const affectedParents = new Set<string>();
       const positionChanges: { nodeId: string; position: { x: number; y: number } }[] = [];
 
-      changes.forEach((c) => {
-        if (c.type === "position" && c.position) {
-          const parentId = getParent(c.id);
-          affectedParents.add(parentId ?? c.id);
-
-          // 位置変更をSocket.IO経由でDBに保存
+      changes.forEach((change) => {
+        if (change.type === 'position' && change.position) {
+          const locked = isNodeLocked(change.id);
+          const lockedByMe = isNodeLockedByCurrentUser(change.id, currentUserId);
+          if (locked && !lockedByMe) {
+            blockedNodeIds.add(change.id);
+            return;
+          }
+          allowedChanges.push(change);
+          const parentId = getParent(change.id);
+          affectedParents.add(parentId ?? change.id);
           positionChanges.push({
-            nodeId: c.id,
-            position: { x: c.position.x, y: c.position.y }
+            nodeId: change.id,
+            position: { x: change.position.x, y: change.position.y }
           });
+          return;
         }
+        allowedChanges.push(change);
       });
 
-      // debounce処理でドラッグ中の大量イベントを制御
+      if (blockedNodeIds.size > 0) {
+        const now = Date.now();
+        if (now - lastLockWarningRef.current > 1500) {
+          const iterator = blockedNodeIds.values().next();
+          const firstBlocked = iterator.value;
+          if (firstBlocked) {
+            const lockInfo = getNodeLockInfo(firstBlocked);
+            const editorName = lockInfo?.userName ?? '別のユーザー';
+            showToast(`${editorName}が編集中のため移動できません`);
+            lastLockWarningRef.current = now;
+          }
+        }
+      }
+
+      if (!allowedChanges.length) {
+        return;
+      }
+
+      onNodesChange(allowedChanges);
+
       if (positionChanges.length > 0) {
-        // 既存のタイマーをクリア
         if (positionUpdateTimerRef.current) {
           clearTimeout(positionUpdateTimerRef.current);
         }
 
-        // 500ms後に位置をDB保存
         positionUpdateTimerRef.current = setTimeout(() => {
           positionChanges.forEach(({ nodeId, position }) => {
-            // 現在のノード情報を取得してcontentと一緒に送信
-            const currentNode = nodes.find(n => n.id === nodeId);
+            const currentNode = nodes.find((node) => node.id === nodeId);
             if (currentNode) {
               notifyNodeUpdateSafely(nodeId, currentNode.data.label, position);
             }
@@ -786,7 +835,19 @@ function CanvasInner({ tenantId, boardId, style, onBoardStateChange, onBoardDele
       // 再度オンにしたい場合は以下を有効化
       // affectedParents.forEach((id) => layoutChildren(id));
     },
-    [getParent, isBoardFinalized, nodes, notifyNodeUpdateSafely, onNodesChange, warnBoardFinalized]
+    [
+      currentUserId,
+      getNodeLockInfo,
+      getParent,
+      isBoardFinalized,
+      isNodeLocked,
+      isNodeLockedByCurrentUser,
+      nodes,
+      notifyNodeUpdateSafely,
+      onNodesChange,
+      showToast,
+      warnBoardFinalized
+    ]
   );
 
   // 初期ノードへコールバックを付与
@@ -864,6 +925,10 @@ function CanvasInner({ tenantId, boardId, style, onBoardStateChange, onBoardDele
       }
     }
   }, [apiEndpoint, boardId, rf, setBoardMeta, setEdges, setIsBoardFinalized, setIsRemoteSyncing, setNodes, showToast]);
+
+  useEffect(() => {
+    loadRemoteFromServerRef.current = () => loadRemoteFromServer();
+  }, [loadRemoteFromServer]);
 
   useEffect(() => {
     console.log('[WhyBoard] useEffect loadRemoteFromServer triggered');

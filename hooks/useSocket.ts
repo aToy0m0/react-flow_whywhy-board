@@ -10,10 +10,12 @@ interface UseSocketOptions {
   onNodeUpdated?: (data: { nodeId: string; content: string; position: { x: number; y: number }; userId: string; adopted?: boolean; type?: string }) => void;
   onUserJoined?: (data: { userId: string; socketId: string }) => void;
   onUserLeft?: (data: { userId: string; socketId: string }) => void;
+  onUserTimeout?: (data: { userId: string; lastSeenAt: string }) => void;
   onBoardAction?: (data: { action: 'relayout' | 'clear' | 'finalize'; initiatedBy: string; timestamp: string }) => void;
   onBoardReloadRequired?: (data: { action: 'relayout' | 'clear' | 'finalize' | 'node-created'; initiatedBy: string; timestamp: string }) => void;
   onBoardFinalized?: (data: { status: 'finalized'; initiatedBy: string; finalizedAt: string }) => void;
   onBoardDeleted?: (data: { boardId: string; boardKey?: string; initiatedBy: string; deletedAt: string; redirectTo: string }) => void;
+  onNodeDeleted?: (data: { nodeId: string; deletedBy: string; deletedAt: string }) => void;
 }
 
 export function useSocket(options: UseSocketOptions) {
@@ -26,10 +28,12 @@ export function useSocket(options: UseSocketOptions) {
     onNodeUpdated,
     onUserJoined,
     onUserLeft,
+    onUserTimeout,
     onBoardAction,
     onBoardReloadRequired,
     onBoardFinalized,
     onBoardDeleted,
+    onNodeDeleted,
   } = options;
 
   const socketRef = useRef<Socket | null>(null);
@@ -43,20 +47,24 @@ export function useSocket(options: UseSocketOptions) {
   const updatedRef = useRef(onNodeUpdated);
   const joinedRef = useRef(onUserJoined);
   const leftRef = useRef(onUserLeft);
+  const userTimeoutRef = useRef(onUserTimeout);
   const boardActionRef = useRef(onBoardAction);
   const boardReloadRequiredRef = useRef(onBoardReloadRequired);
   const boardFinalizedRef = useRef(onBoardFinalized);
   const boardDeletedRef = useRef(onBoardDeleted);
+  const nodeDeletedRef = useRef(onNodeDeleted);
 
   useEffect(() => { lockedRef.current = onNodeLocked; }, [onNodeLocked]);
   useEffect(() => { unlockedRef.current = onNodeUnlocked; }, [onNodeUnlocked]);
   useEffect(() => { updatedRef.current = onNodeUpdated; }, [onNodeUpdated]);
   useEffect(() => { joinedRef.current = onUserJoined; }, [onUserJoined]);
   useEffect(() => { leftRef.current = onUserLeft; }, [onUserLeft]);
+  useEffect(() => { userTimeoutRef.current = onUserTimeout; }, [onUserTimeout]);
   useEffect(() => { boardActionRef.current = onBoardAction; }, [onBoardAction]);
   useEffect(() => { boardReloadRequiredRef.current = onBoardReloadRequired; }, [onBoardReloadRequired]);
   useEffect(() => { boardFinalizedRef.current = onBoardFinalized; }, [onBoardFinalized]);
   useEffect(() => { boardDeletedRef.current = onBoardDeleted; }, [onBoardDeleted]);
+  useEffect(() => { nodeDeletedRef.current = onNodeDeleted; }, [onNodeDeleted]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -112,10 +120,12 @@ export function useSocket(options: UseSocketOptions) {
       s.on('node-updated', (d) => updatedRef.current?.(d));
       s.on('user-joined', (d) => joinedRef.current?.(d));
       s.on('user-left', (d) => leftRef.current?.(d));
+      s.on('user-timeout', (d) => userTimeoutRef.current?.(d));
       s.on('board-action', (d) => boardActionRef.current?.(d));
       s.on('board-reload-required', (d) => boardReloadRequiredRef.current?.(d));
       s.on('board-finalized', (d) => boardFinalizedRef.current?.(d));
       s.on('board-deleted', (d) => boardDeletedRef.current?.(d));
+      s.on('node-deleted', (d) => nodeDeletedRef.current?.(d));
 
       // join確認でリアルタイムモード確実化
       s.on('joined', ({ roomId, userId }) => {
@@ -145,6 +155,11 @@ export function useSocket(options: UseSocketOptions) {
       s.on('node-save-error', (data) => {
         console.error('[Socket.IO] Node save error:', data);
         setError(`Save error: ${data.error}`);
+      });
+
+      s.on('node-delete-error', (data) => {
+        console.error('[Socket.IO] Node delete error:', data);
+        setError(`Node delete error: ${data.error}`);
       });
 
       s.on('board-action-error', (data) => {
@@ -197,6 +212,13 @@ export function useSocket(options: UseSocketOptions) {
     }
   };
 
+  // ノード削除通知
+  const deleteNode = (nodeId: string) => {
+    if (socketRef.current?.connected) {
+      socketRef.current.emit('node-delete', { nodeId });
+    }
+  };
+
   // ボードアクション送信（整列・クリア）
   const sendBoardAction = (action: 'relayout' | 'clear' | 'finalize') => {
     if (socketRef.current?.connected) {
@@ -211,6 +233,7 @@ export function useSocket(options: UseSocketOptions) {
     lockNode,
     unlockNode,
     notifyNodeUpdate,
+    deleteNode,
     sendBoardAction,
     socket: socketRef.current
   };

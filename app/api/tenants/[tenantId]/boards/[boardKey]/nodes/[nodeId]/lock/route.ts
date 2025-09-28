@@ -153,7 +153,10 @@ export async function POST(_req: NextRequest, context: RouteContext) {
       if (existingLock.userId === auth.user.id) {
         const updatedLock = await prisma.nodeLock.update({
           where: { id: existingLock.id },
-          data: { lockedAt: new Date() },
+          data: {
+            lockedAt: new Date(),
+            isActive: true
+          },
           include: {
             user: {
               select: { id: true, email: true }
@@ -184,6 +187,8 @@ export async function POST(_req: NextRequest, context: RouteContext) {
       data: {
         nodeId: node.id,
         userId: auth.user.id,
+        tenantId: auth.tenant.id,
+        boardId: board.id,
         isActive: true
       },
       include: {

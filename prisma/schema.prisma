@@ -2,7 +2,7 @@ generator client {
   provider = "prisma-client-js"
 }
 
- datasource db {
+datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
@@ -28,31 +28,33 @@ enum BoardStatus {
 }
 
 model Tenant {
-  id        String   @id @default(cuid())
-  slug      String   @unique
+  id        String     @id @default(cuid())
+  slug      String     @unique
   name      String
-  themeKey  String   @default("midnight")
+  themeKey  String     @default("midnight")
   boards    Board[]
   users     User[]
   nodes     Node[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  nodeLocks NodeLock[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 }
 
 model Board {
-  id          String       @id @default(cuid())
+  id          String      @id @default(cuid())
   tenantId    String
   boardKey    String
   name        String
   ownerId     String?
-  status      BoardStatus  @default(ACTIVE)
+  status      BoardStatus @default(ACTIVE)
   finalizedAt DateTime?
   deletedAt   DateTime?
-  tenant      Tenant       @relation(fields: [tenantId], references: [id])
-  owner       User?        @relation("BoardOwner", fields: [ownerId], references: [id])
+  tenant      Tenant      @relation(fields: [tenantId], references: [id])
+  owner       User?       @relation("BoardOwner", fields: [ownerId], references: [id])
   nodes       Node[]
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  locks       NodeLock[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
 
   @@unique([tenantId, boardKey])
   @@index([tenantId])
@@ -62,29 +64,29 @@ model Board {
 }
 
 model Node {
-  id         String       @id @default(cuid())
-  tenantId   String
-  boardId    String
-  nodeKey    String?
-  tenant     Tenant       @relation(fields: [tenantId], references: [id])
-  board      Board        @relation(fields: [boardId], references: [id])
-  content    String
-  depth      Int
-  category   NodeCategory @default(Why)
-  tags       String[]     @default([])
-  prevNodes  String[]     @default([])
-  nextNodes  String[]     @default([])
-  x          Float        @default(0)
-  y          Float        @default(0)
-  adopted    Boolean      @default(false)
-  uiHeight   Float?
-  locks      NodeLock[]
-  edits      NodeEdit[]
-  createdAt  DateTime     @default(now())
-  updatedAt  DateTime     @updatedAt
+  id        String       @id @default(cuid())
+  tenantId  String
+  boardId   String
+  nodeKey   String?
+  tenant    Tenant       @relation(fields: [tenantId], references: [id])
+  board     Board        @relation(fields: [boardId], references: [id])
+  content   String
+  depth     Int
+  category  NodeCategory @default(Why)
+  tags      String[]     @default([])
+  prevNodes String[]     @default([])
+  nextNodes String[]     @default([])
+  x         Float        @default(0)
+  y         Float        @default(0)
+  adopted   Boolean      @default(false)
+  uiHeight  Float?
+  locks     NodeLock[]
+  edits     NodeEdit[]
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
 
-  @@index([tenantId, boardId])
   @@unique([tenantId, boardId, nodeKey])
+  @@index([tenantId, boardId])
 }
 
 model User {
@@ -105,8 +107,12 @@ model NodeLock {
   id         String    @id @default(cuid())
   nodeId     String
   userId     String
+  tenantId   String
+  boardId    String
   node       Node      @relation(fields: [nodeId], references: [id], onDelete: Cascade)
   user       User      @relation(fields: [userId], references: [id])
+  tenant     Tenant    @relation(fields: [tenantId], references: [id])
+  board      Board     @relation(fields: [boardId], references: [id], onDelete: Cascade)
   lockedAt   DateTime  @default(now())
   unlockedAt DateTime?
   isActive   Boolean   @default(true)
@@ -115,6 +121,8 @@ model NodeLock {
 
   @@index([nodeId, isActive])
   @@index([lockedAt])
+  @@index([tenantId, boardId, isActive])
+  @@index([boardId, isActive])
 }
 
 model NodeEdit {
@@ -123,9 +131,9 @@ model NodeEdit {
   userId     String
   node       Node     @relation(fields: [nodeId], references: [id], onDelete: Cascade)
   user       User     @relation(fields: [userId], references: [id])
-  action     String   // 'create' | 'update' | 'delete' | 'undo' | 'redo'
-  beforeData Json?    // 変更前のデータ
-  afterData  Json?    // 変更後のデータ
+  action     String // 'create' | 'update' | 'delete' | 'undo' | 'redo'
+  beforeData Json? // 変更前のデータ
+  afterData  Json? // 変更後のデータ
   createdAt  DateTime @default(now())
 
   @@index([nodeId, createdAt])

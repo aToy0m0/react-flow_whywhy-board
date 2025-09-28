@@ -418,11 +418,20 @@ app.prepare().then(() => {
           const lock = existing
             ? await tx.nodeLock.update({
                 where: { id: existing.id },
-                data: { lockedAt: new Date(), isActive: true },
+                data: {
+                  lockedAt: new Date(),
+                  isActive: true,
+                },
                 include: { user: { select: { id: true, email: true } } }
               })
             : await tx.nodeLock.create({
-                data: { nodeId: node.id, userId, isActive: true },
+                data: {
+                  nodeId: node.id,
+                  userId,
+                  tenantId: tenant.id,
+                  boardId: board.id,
+                  isActive: true,
+                },
                 include: { user: { select: { id: true, email: true } } }
               });
 
@@ -583,17 +592,49 @@ app.prepare().then(() => {
           return;
         }
 
+        const publicId = node.nodeKey ?? node.id;
+
+        const activeLock = await prisma.nodeLock.findFirst({
+          where: { nodeId: node.id, isActive: true },
+        });
+
+        if (activeLock && activeLock.userId !== userId) {
+          socket.emit('node-save-error', { nodeId, error: 'Node is locked by another user' });
+          return;
+        }
+
         // 位置変更のみの場合はロック検証をスキップ
         const isPositionOnlyUpdate = (content === undefined || content === node.content) && position;
 
-        // 3) ロック検証：コンテンツ変更の場合のみアクティブロックを要求
         if (!isPositionOnlyUpdate) {
-          const activeLock = await prisma.nodeLock.findFirst({
+          const ownLock = await prisma.nodeLock.findFirst({
             where: { nodeId: node.id, userId, isActive: true },
           });
-          if (!activeLock) {
-            socket.emit('node-save-error', { nodeId, error: 'No active lock' });
-            return;
+          if (!ownLock) {
+            const reacquiredLock = await prisma.nodeLock.create({
+              data: {
+                nodeId: node.id,
+                userId,
+                tenantId: tenant.id,
+                boardId: board.id,
+                isActive: true,
+              }
+            });
+
+            try {
+              const user = await prisma.user.findUnique({
+                where: { id: userId },
+                select: { email: true }
+              });
+              io.to(roomId).emit('node-locked', {
+                nodeId: publicId,
+                userId,
+                userName: user?.email ?? userId,
+                lockedAt: reacquiredLock.lockedAt,
+              });
+            } catch (lockNotifyError) {
+              console.warn('[Socket.IO] Failed to broadcast auto-lock reacquire', lockNotifyError);
+            }
           }
         }
 
@@ -657,7 +698,6 @@ app.prepare().then(() => {
         });
 
         // 6) ブロードキャスト（nodeKey を優先、なければ id）
-        const publicId = node.nodeKey ?? node.id;
         const broadcastData = {
           nodeId: publicId,
           content: updated.content,
@@ -681,6 +721,158 @@ app.prepare().then(() => {
       } catch (error) {
         console.error('[Socket.IO] Failed to save node to DB:', error);
         socket.emit('node-save-error', { nodeId, error: error.message });
+      }
+    });
+
+    // ノード削除
+    socket.on('node-delete', async ({ nodeId }) => {
+      const { roomId, userId, tenantId, boardKey } = socket.data;
+      if (!roomId || !userId || userId === 'anonymous') {
+        socket.emit('node-delete-error', { nodeId, error: 'Authentication required' });
+        return;
+      }
+
+      try {
+        const tenant = await prisma.tenant.findUnique({
+          where: { slug: tenantId },
+          select: { id: true }
+        });
+
+        if (!tenant) {
+          socket.emit('node-delete-error', { nodeId, error: 'Tenant not found' });
+          return;
+        }
+
+        const board = await prisma.board.findUnique({
+          where: { tenantId_boardKey: { tenantId: tenant.id, boardKey } },
+          select: { id: true, status: true, deletedAt: true },
+        });
+
+        if (!board) {
+          socket.emit('node-delete-error', { nodeId, error: 'Board not found' });
+          return;
+        }
+
+        if (board.deletedAt) {
+          socket.emit('node-delete-error', { nodeId, error: 'Board has been deleted' });
+          return;
+        }
+
+        if (board.status === 'FINALIZED') {
+          socket.emit('node-delete-error', { nodeId, error: 'Board is finalized' });
+          return;
+        }
+
+        const node = await prisma.node.findFirst({
+          where: {
+            boardId: board.id,
+            OR: [{ id: nodeId }, { nodeKey: nodeId }],
+          },
+          select: {
+            id: true,
+            nodeKey: true,
+            content: true,
+            category: true,
+            x: true,
+            y: true,
+            adopted: true,
+            prevNodes: true,
+            nextNodes: true,
+          },
+        });
+
+        if (!node) {
+          socket.emit('node-delete-error', { nodeId, error: 'Node not found' });
+          return;
+        }
+
+        if (node.nodeKey === 'root' || node.category === 'Root') {
+          socket.emit('node-delete-error', { nodeId, error: 'Root node cannot be deleted' });
+          return;
+        }
+
+        const publicId = node.nodeKey ?? node.id;
+
+        const conflictingLock = await prisma.nodeLock.findFirst({
+          where: { nodeId: node.id, isActive: true, userId: { not: userId } },
+          include: {
+            user: { select: { id: true, email: true } }
+          }
+        });
+
+        if (conflictingLock) {
+          socket.emit('node-delete-error', {
+            nodeId,
+            error: 'Node is locked by another user',
+            lockedBy: conflictingLock.user,
+          });
+          return;
+        }
+
+        const now = new Date();
+
+        await prisma.$transaction(async (tx) => {
+          await tx.nodeLock.updateMany({
+            where: { nodeId: node.id, isActive: true },
+            data: { isActive: false, unlockedAt: now },
+          });
+
+          const parents = await tx.node.findMany({
+            where: { boardId: board.id, nextNodes: { has: publicId } },
+            select: { id: true, nextNodes: true },
+          });
+          for (const parent of parents) {
+            const filtered = (parent.nextNodes ?? []).filter((childId) => childId !== publicId);
+            await tx.node.update({
+              where: { id: parent.id },
+              data: { nextNodes: filtered },
+            });
+          }
+
+          const children = await tx.node.findMany({
+            where: { boardId: board.id, prevNodes: { has: publicId } },
+            select: { id: true, prevNodes: true },
+          });
+          for (const child of children) {
+            const filtered = (child.prevNodes ?? []).filter((parentId) => parentId !== publicId);
+            await tx.node.update({
+              where: { id: child.id },
+              data: { prevNodes: filtered },
+            });
+          }
+
+          await tx.nodeEdit.create({
+            data: {
+              nodeId: node.id,
+              userId,
+              action: 'delete',
+              beforeData: {
+                id: publicId,
+                content: node.content,
+                category: node.category,
+                x: node.x,
+                y: node.y,
+                adopted: node.adopted,
+                prevNodes: node.prevNodes,
+                nextNodes: node.nextNodes,
+              },
+            },
+          });
+
+          await tx.node.delete({ where: { id: node.id } });
+        });
+
+        io.to(roomId).emit('nodes-unlocked', { userId, nodeIds: [publicId] });
+        io.to(roomId).emit('node-deleted', {
+          nodeId: publicId,
+          deletedBy: userId,
+          deletedAt: now.toISOString(),
+        });
+        socket.emit('node-delete-success', { nodeId: publicId });
+      } catch (error) {
+        console.error('[Socket.IO] Failed to delete node:', error);
+        const message = error instanceof Error ? error.message : 'Internal server error';
+        socket.emit('node-delete-error', { nodeId, error: message });
       }
     });
 
@@ -877,16 +1069,18 @@ app.prepare().then(() => {
     });
 
     // 切断処理
-    socket.on('disconnect', async () => {
+    socket.on('disconnect', async (reason) => {
       const { roomId, userId } = socket.data;
 
       console.log('[Socket.IO] Client disconnected:', {
         socketId: socket.id,
         roomId,
-        userId
+        userId,
+        reason
       });
 
       if (roomId && userId) {
+        const disconnectedAt = new Date().toISOString();
         try {
           // 切断前にアクティブロック中のnodeIdを取得
           const activeLocks = await prisma.nodeLock.findMany({
@@ -916,6 +1110,10 @@ app.prepare().then(() => {
           }
         } catch (error) {
           console.error('[Socket.IO] Error during auto-unlock:', error);
+        }
+
+        if (reason === 'ping timeout') {
+          io.to(roomId).emit('user-timeout', { userId, lastSeenAt: disconnectedAt });
         }
 
         socket.to(roomId).emit('user-left', { userId, socketId: socket.id });

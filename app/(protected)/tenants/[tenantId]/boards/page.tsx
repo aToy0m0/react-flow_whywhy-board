@@ -39,7 +39,7 @@ export default async function TenantBoardListPage({ params }: Props) {
   }
 
   const boards = await prisma.board.findMany({
-    where: { tenantId: tenant.id },
+    where: { tenantId: tenant.id, deletedAt: null },
     orderBy: { updatedAt: "desc" },
     select: {
       id: true,
