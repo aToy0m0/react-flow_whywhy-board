@@ -52,7 +52,7 @@ export default function BoardListClient({ tenantId, initialBoards }: Props) {
   }
 
   return (
-    <div className="grid gap-4 md:grid-cols-2">
+    <div className="space-y-4">
       {boards.map((board) => (
         <article
           key={board.id}

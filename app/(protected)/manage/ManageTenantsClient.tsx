@@ -193,7 +193,7 @@ export default function ManageTenantsClient({ initialTenants }: Props) {
     <div className="space-y-10">
       <section className="rounded-3xl border border-subtle bg-surface-overlay p-6 shadow-xl backdrop-blur">
         <h2 className="text-xl font-semibold text-headline">テナントを追加</h2>
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        <div className="mt-4 space-y-4">
           <div className="space-y-2">
             <label className="text-sm font-medium text-paragraph">スラッグ</label>
             <input
@@ -231,7 +231,7 @@ export default function ManageTenantsClient({ initialTenants }: Props) {
           <p className="text-sm text-paragraph">テナント管理者 合計: {totalAdminCount}</p>
         </header>
 
-        <div className="grid gap-6 md:grid-cols-2">
+        <div className="space-y-6">
           {tenants.map((tenant) => (
             <article
               key={tenant.id}

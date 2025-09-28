@@ -25,4 +25,6 @@ export type WhyNodeData = {
   unlockNode?: (nodeId: string) => void;
   // Socket.IO同期機能
   notifyNodeUpdate?: (nodeId: string, content: string, position?: { x: number; y: number }, extraData?: { adopted?: boolean; type?: string }) => void;
+  registerPendingUpdate?: (nodeId: string, payload: { content: string; extra?: { adopted?: boolean; type?: string } }) => void;
+  flushPendingUpdate?: (nodeId: string) => void;
 };

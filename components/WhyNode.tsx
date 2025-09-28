@@ -98,6 +98,7 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
     }, 500);
 
     setSyncTimeout(timeout);
+    d.registerPendingUpdate?.(id, { content: newValue });
   }, [syncTimeout, d, id, canEdit]);
 
   const handleEditEnd = useCallback(() => {
@@ -106,6 +107,7 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
     }
 
     isEditingRef.current = false;
+    d.flushPendingUpdate?.(id);
 
     const timeout = setTimeout(() => {
       if (isEditingRef.current) {
@@ -141,6 +143,7 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
       if (syncTimeout) {
         clearTimeout(syncTimeout);
       }
+      d.flushPendingUpdate?.(id);
       if (lockedByMe && d.unlockNode && isNodeLockedByCurrentUser(id, d.currentUserId || '')) {
         d.unlockNode(id);
       }

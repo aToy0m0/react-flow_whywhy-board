@@ -95,7 +95,9 @@ function CanvasInner({ tenantId, boardId, style, onBoardStateChange, onBoardDele
   } = useNodeLock();
   const currentUserId = session?.user?.id || '';
   const [isBoardFinalized, setIsBoardFinalized] = useState(false);
-  const loadRemoteFromServerRef = useRef<(options?: { fitView?: boolean }) => Promise<void>>(() => Promise.resolve());
+    const pendingNodeUpdatesRef = useRef(new Map<string, { content: string; position?: { x: number; y: number }; extra?: { adopted?: boolean; type?: string } }>());
+
+const loadRemoteFromServerRef = useRef<(options?: { fitView?: boolean }) => Promise<void>>(() => Promise.resolve());
 
 
 
@@ -142,6 +144,8 @@ function CanvasInner({ tenantId, boardId, style, onBoardStateChange, onBoardDele
     onBoardAction: (data) => {
       console.log('[WhyBoard] Board action received:', data);
       const isInitiator = data.initiatedBy === session?.user?.id;
+
+      flushAllPendingNodeUpdates();
 
       if (data.action === 'relayout') {
         if (isInitiator) {
@@ -190,6 +194,8 @@ function CanvasInner({ tenantId, boardId, style, onBoardStateChange, onBoardDele
       console.log('[WhyBoard] Board reload required:', data);
 
       const isInitiator = data.initiatedBy === session?.user?.id;
+
+      flushAllPendingNodeUpdates();
 
       if (data.action === 'node-created') {
         if (!isInitiator) {
@@ -335,6 +341,27 @@ function CanvasInner({ tenantId, boardId, style, onBoardStateChange, onBoardDele
     }
   }, [isBoardFinalized, onBoardStateChange]);
 
+  const registerPendingNodeUpdate = useCallback((nodeId: string, update: { content: string; position?: { x: number; y: number }; extra?: { adopted?: boolean; type?: string } }) => {
+    pendingNodeUpdatesRef.current.set(nodeId, update);
+  }, []);
+
+  const flushPendingNodeUpdate = useCallback((nodeId: string) => {
+    if (!socketNotifyNodeUpdate) return;
+    const entry = pendingNodeUpdatesRef.current.get(nodeId);
+    if (!entry) return;
+    socketNotifyNodeUpdate(nodeId, entry.content, entry.position, entry.extra);
+    pendingNodeUpdatesRef.current.delete(nodeId);
+  }, [socketNotifyNodeUpdate]);
+
+  const flushAllPendingNodeUpdates = useCallback(() => {
+    if (!socketNotifyNodeUpdate) return;
+    if (pendingNodeUpdatesRef.current.size === 0) return;
+    pendingNodeUpdatesRef.current.forEach((entry, nodeId) => {
+      socketNotifyNodeUpdate(nodeId, entry.content, entry.position, entry.extra);
+    });
+    pendingNodeUpdatesRef.current.clear();
+  }, [socketNotifyNodeUpdate]);
+
   const lockNodeSafely = useCallback((nodeId: string, ensure?: {
     content?: string;
     position?: { x: number; y: number };
@@ -357,7 +384,12 @@ function CanvasInner({ tenantId, boardId, style, onBoardStateChange, onBoardDele
       warnBoardFinalized();
       return;
     }
+    if (isBoardFinalized) {
+      warnBoardFinalized();
+      return;
+    }
     socketNotifyNodeUpdate?.(nodeId, content, position, extraData);
+    pendingNodeUpdatesRef.current.delete(nodeId);
   }, [isBoardFinalized, socketNotifyNodeUpdate, warnBoardFinalized]);
 
   const sendBoardActionSafely = useCallback((action: 'relayout' | 'clear' | 'finalize') => {
@@ -369,8 +401,9 @@ function CanvasInner({ tenantId, boardId, style, onBoardStateChange, onBoardDele
       warnBoardFinalized();
       return;
     }
+    flushAllPendingNodeUpdates();
     sendBoardAction?.(action);
-  }, [isBoardFinalized, sendBoardAction, warnBoardFinalized]);
+  }, [flushAllPendingNodeUpdates, isBoardFinalized, sendBoardAction, warnBoardFinalized]);
 
   // MARK: クエリ — 親 -> 子（作成順で安定ソート）
   const getChildren = useCallback((parentId: string) => getChildrenSorted(nodes, edges, parentId), [nodes, edges]);
@@ -564,10 +597,16 @@ function CanvasInner({ tenantId, boardId, style, onBoardStateChange, onBoardDele
           unlockNode: socketUnlockNode,
           // Socket.IO同期機能
           notifyNodeUpdate: notifyNodeUpdateSafely,
+          registerPendingUpdate: (id: string, value: { content: string; extra?: { adopted?: boolean; type?: string } }) => {
+            registerPendingNodeUpdate(id, { content: value.content, extra: value.extra });
+          },
+          flushPendingUpdate: (id: string) => {
+            flushPendingNodeUpdate(id);
+          },
         },
       };
     },
-    [boardId, closeMenu, deleteNode, edges, getParentInfo, menuOpenFor, nodes, onToggleAdopted, openMenu, setNodes, session?.user?.id, lockNodeSafely, notifyNodeUpdateSafely, socketUnlockNode]
+    [boardId, closeMenu, deleteNode, edges, flushPendingNodeUpdate, getParentInfo, menuOpenFor, nodes, onToggleAdopted, openMenu, registerPendingNodeUpdate, setNodes, session?.user?.id, lockNodeSafely, notifyNodeUpdateSafely, socketUnlockNode]
   );
   useEffect(() => {
     enhanceNodeRef.current = enhanceNode;

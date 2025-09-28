@@ -31,7 +31,7 @@ export default async function TenantDashboardPage({ params }: Props) {
     prisma.board.count({ where: { tenantId } }),
     prisma.user.count({ where: { tenantId } }),
     prisma.board.findMany({
-      where: { tenantId },
+      where: { tenantId, deletedAt: null },
       orderBy: { updatedAt: "desc" },
       take: 6,
       select: {

@@ -64,12 +64,6 @@ export default async function DashboardPage() {
               : "テナントがまだ割り当てられていません。セットアップを完了してください。"}
           </p>
           <div className="flex flex-wrap gap-3">
-            <Link
-              href="/setup"
-              className="rounded-lg bg-surface-card px-4 py-2 text-sm font-medium text-paragraph transition hover:bg-surface-hover"
-            >
-              セットアップガイド
-            </Link>
             {tenantId && (
               <Link
                 href={`/tenants/${tenantId}/boards`}
