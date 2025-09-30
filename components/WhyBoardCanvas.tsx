@@ -294,6 +294,12 @@ const loadRemoteFromServerRef = useRef<(options?: { fitView?: boolean }) => Prom
   const [, setBoardMeta] = useState<BoardMeta | null>(null);
   const positionUpdateTimerRef = useRef<NodeJS.Timeout | null>(null);
   const lastLockWarningRef = useRef(0);
+  const nodesRef = useRef<WNode[]>(nodes);
+
+  // nodesが更新されたらRefも更新
+  useEffect(() => {
+    nodesRef.current = nodes;
+  }, [nodes]);
 
   useEffect(() => {
     return () => {
@@ -489,10 +495,29 @@ const loadRemoteFromServerRef = useRef<(options?: { fitView?: boolean }) => Prom
   // MARK: アクション — 採用トグル（なぜ<->原因 の切替）
   const onToggleAdopted = useCallback(
     (id: string, value: boolean) => {
+      console.log('[WhyBoard] onToggleAdopted called:', { id, value, isBoardFinalized, hasSocketNotify: !!socketNotifyNodeUpdate });
+
       if (isBoardFinalized) {
         warnBoardFinalized();
         return;
       }
+
+      // まずnodesRefから現在のノード情報を取得
+      const currentNode = nodesRef.current.find(n => n.id === id);
+      console.log('[WhyBoard] Current node for adoption (from Ref):', {
+        id,
+        found: !!currentNode,
+        label: currentNode?.data.label,
+        position: currentNode?.position,
+        totalNodesCount: nodesRef.current.length,
+        allNodeIds: nodesRef.current.map(n => n.id)
+      });
+
+      if (!currentNode) {
+        console.warn('[WhyBoard] Current node not found for adoption update:', id);
+        return;
+      }
+
       // ローカル状態更新
       setNodes((prev) =>
         prev.map((n) =>
@@ -504,17 +529,16 @@ const loadRemoteFromServerRef = useRef<(options?: { fitView?: boolean }) => Prom
 
       // Socket.IO経由でDB保存と他ユーザー伝搬
       if (socketNotifyNodeUpdate) {
-        const currentNode = nodes.find(n => n.id === id);
-        if (currentNode) {
-          // ノード情報を更新してDB保存
-          socketNotifyNodeUpdate(id, currentNode.data.label, currentNode.position, {
-            adopted: value,
-            type: value ? "cause" : "why"
-          });
-        }
+        socketNotifyNodeUpdate(id, currentNode.data.label, currentNode.position, {
+          adopted: value,
+          type: value ? "cause" : "why"
+        });
+        console.log('[WhyBoard] Sent adoption update via socket:', { id, value, label: currentNode.data.label });
+      } else {
+        console.warn('[WhyBoard] socketNotifyNodeUpdate not available');
       }
     },
-    [isBoardFinalized, nodes, setNodes, socketNotifyNodeUpdate, warnBoardFinalized]
+    [isBoardFinalized, setNodes, socketNotifyNodeUpdate, warnBoardFinalized]
   );
 
   // 既存ノードに最新の getParentInfo プロキシを一括設定（初回のみ）

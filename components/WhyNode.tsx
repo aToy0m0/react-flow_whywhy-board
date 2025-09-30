@@ -254,7 +254,10 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
               type="checkbox"
               checked={!!d.adopted}
               disabled={!canEdit || (d.type === "why" && (d.hasChildren(id) || d.hasCauseDescendant?.(id)))}
-              onChange={(e) => d.onToggleAdopted?.(id, e.target.checked)}
+              onChange={(e) => {
+                console.log('[WhyNode] Checkbox onChange:', { id, checked: e.target.checked, hasOnToggleAdopted: !!d.onToggleAdopted, type: d.type });
+                d.onToggleAdopted?.(id, e.target.checked);
+              }}
               onPointerDown={(e) => e.stopPropagation()}
               onMouseDown={(e) => e.stopPropagation()}
               className="nodrag"
