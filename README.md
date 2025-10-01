@@ -39,9 +39,12 @@ cp .env.example .env
 openssl rand -base64 32
 
 # .envファイルを編集（必須項目）:
+# nano .env
 # NEXTAUTH_SECRET=<生成されたキー>
 # SUPERADMIN_EMAIL=admin@example.com
 # SUPERADMIN_PASSWORD=<任意のパスワード>
+# NEXTAUTH_URL=<your server IP or FQDN>:3000
+# NEXT_PUBLIC_API_BASE_URL=<your server IP or FQDN>:3000
 
 # アプリケーションビルド・起動
 docker compose up -d --build
@@ -57,7 +60,7 @@ docker compose restart web
 ```
 
 ### 初回セットアップ
-1. http://localhost:3000 にアクセスしスーパーアドミンユーザーを作成
+1. http://your-server:3000 にアクセスしスーパーアドミンユーザーを作成
 2. テナントを作成
 3. ユーザーを招待(テナントアドミンおよびメンバー)
 

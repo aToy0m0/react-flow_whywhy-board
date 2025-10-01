@@ -1,8 +1,26 @@
 import { NextResponse } from 'next/server';
 import { createSuperAdmin } from '@/lib/superAdmin';
+import { prisma } from '@/lib/prisma';
+import { UserRole } from '@prisma/client';
 
 export async function POST(request: Request) {
   try {
+    // Security: Check if any super admin already exists
+    const existingSuperAdmin = await prisma.user.findFirst({
+      where: { role: UserRole.SUPER_ADMIN },
+    });
+
+    if (existingSuperAdmin) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'Super admin already exists. This endpoint is only available for initial setup.',
+          hint: 'Use the authenticated admin panel to manage users.',
+        },
+        { status: 403 }
+      );
+    }
+
     let body: unknown;
     if (request.headers.get('content-type')?.includes('application/json')) {
       body = await request.json().catch(() => undefined);

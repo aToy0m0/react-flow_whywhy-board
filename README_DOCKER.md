@@ -1,8 +1,26 @@
 # 📘 README_DOCKER.md
 
 ## プロジェクト概要
-このディレクトリには、**Next.js アプリを Docker 上で実行するための設定**が含まれています。  
-他の人は `git clone` → `docker compose up -d` だけでアプリを起動できます。  
+**WhyWhy Board** - なぜなぜ分析を複数ユーザーがリアルタイムで協働できるブラウザアプリです。
+
+このディレクトリには、**Next.js アプリを Docker 上で実行するための設定**が含まれています。
+他の人は `git clone` → `docker compose up -d` だけでアプリを起動できます。
+
+### 主な機能
+- 🎨 ビジュアルなフローチャート編集（React Flow）
+- 🔄 リアルタイム協働編集（Socket.IO）
+- 🔒 ノードロック機能による競合回避
+- 💾 PostgreSQL + Prisma ORMによるデータ永続化
+- 🔐 NextAuth.jsによる認証
+- 📤 PNG/SVG画像エクスポート
+- 🔍 柔軟なズーム機能（10%～400%）
+
+### 最新リリース: v1.0.1 (2025-10-01)
+- ✨ SVG書き出し機能（ベクター形式、z-index保持）
+- 🔍 ズーム範囲拡張（minZoom: 0.1, maxZoom: 4）
+- ✅ 採用チェックのDB保存修正
+- 🔒 ロック解除タイマーの改善
+- 💾 テキスト保存の確実化
 
 ---
 
@@ -26,11 +44,25 @@
 | 変数 | 用途 | 例 |
 | ---- | ---- | -- |
 | `DATABASE_URL` | Prisma / アプリの DB 接続文字列 | `postgresql://whyboard:whyboard@db:5432/whyboard` |
-| `NEXT_PUBLIC_TENANT_ID` | テナント識別子 | `default` |
-| `NEXT_PUBLIC_API_BASE_URL` | フロントからの API ベース URL | `http://localhost:3000` |
+| `NEXTAUTH_URL` | NextAuth.js の認証 URL | `http://localhost:3000` |
+| `NEXTAUTH_SECRET` | NextAuth.js のセッション暗号化キー | `your-secret-key-here` |
+| `SUPERADMIN_EMAIL` | スーパー管理者のメールアドレス | `admin@example.com` |
+| `SUPERADMIN_PASSWORD` | スーパー管理者のパスワード | `your-password` |
+| `NEXT_PUBLIC_TENANT_ID` | テナント識別子（任意） | `default` |
+| `NEXT_PUBLIC_API_BASE_URL` | フロントからの API ベース URL（任意） | `http://localhost:3000` |
 | `NEXT_PUBLIC_REPO_URL` | ドキュメント参照用のリポジトリ URL（任意） | `https://github.com/your-org/your-repo/blob/main` |
 
 Dockerfile にも既定値が入っていますが、実環境では `.env` で上書きしてください。
+
+### NextAuth設定の重要な注意点
+- `NEXTAUTH_URL` は実際にアクセスするURLと一致させる必要があります
+  - ローカル: `http://localhost:3000`
+  - LAN内: `http://192.168.x.x:3000`
+  - 本番: `https://your-domain.com`
+- `NEXTAUTH_SECRET` は以下のコマンドで生成できます:
+  ```bash
+  openssl rand -base64 32
+  ```
 
 ---
 
@@ -83,12 +115,27 @@ docker compose down
 
 ### ログの確認
 ```bash
-docker compose logs -f
+docker compose logs -f web
+```
+
+### コンテナの再起動
+```bash
+docker compose restart web
 ```
 
 ### コンテナの再ビルド
 ```bash
 docker compose up -d --build
+```
+
+### Prismaマイグレーション適用
+```bash
+docker compose exec web npx prisma migrate deploy
+```
+
+### データベース確認
+```bash
+docker compose exec db psql -U whyboard -d whyboard -c '\dt'
 ```
 
 ### 起動ポリシーの確認
