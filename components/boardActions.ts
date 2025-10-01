@@ -29,6 +29,7 @@ export type BoardHandle = {
   loadRemote: () => Promise<void>;
   exportToml: () => void;
   importTomlText: (text: string) => void;
+  exportSvg: () => Promise<void>;  // 追加: SVG書き出し
   exportPng: () => Promise<void>;
   clearBoard: () => void;   // 追加: 盤面クリア
   relayoutAll: () => void;  // 追加: 全体整列

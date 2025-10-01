@@ -1125,8 +1125,33 @@ const loadRemoteFromServerRef = useRef<(options?: { fitView?: boolean }) => Prom
 
         const svgElements = viewportElement.querySelectorAll('svg');
         console.log(`[PNG Export Debug] Found ${svgElements.length} SVG elements:`, svgElements);
-        // 以下はエラーチェック無し版で、型チェックエラー
-        // const dataUrl = await mod.toPng(document.querySelector('.react-flow__viewport'), {
+
+        // SVG内のpath要素を確認
+        const pathElements = viewportElement.querySelectorAll('svg path');
+        console.log(`[PNG Export Debug] Found ${pathElements.length} path elements in SVG:`, pathElements);
+
+        // エッジのスタイルを確認
+        if (edgeElements.length > 0) {
+          const firstEdge = edgeElements[0] as HTMLElement;
+          const computedStyle = window.getComputedStyle(firstEdge);
+          console.log('[PNG Export Debug] First edge computed style:', {
+            stroke: computedStyle.stroke,
+            strokeWidth: computedStyle.strokeWidth,
+            display: computedStyle.display,
+            visibility: computedStyle.visibility,
+            opacity: computedStyle.opacity,
+          });
+        }
+
+        // html-to-imageはCSS変数をコピーしないため、SVG要素に直接stroke属性を設定
+        const allEdgePaths = viewportElement.querySelectorAll('.react-flow__edge-path');
+        allEdgePaths.forEach((path) => {
+          (path as SVGPathElement).setAttribute('stroke', '#111111');
+          (path as SVGPathElement).setAttribute('stroke-width', '2');
+          (path as SVGPathElement).setAttribute('fill', 'none');
+        });
+        console.log(`[PNG Export Debug] Applied direct stroke to ${allEdgePaths.length} edge paths`);
+
         const styleOverrides: Partial<CSSStyleDeclaration> = {
           width: `${imageWidth}px`,
           height: `${imageHeight}px`,
@@ -1134,50 +1159,42 @@ const loadRemoteFromServerRef = useRef<(options?: { fitView?: boolean }) => Prom
           transformOrigin: '0 0',
           color: '#111111',
         };
-        // React Flow v12 エッジ用CSS変数（デフォルト値と実際の値両方を設定）
-        (styleOverrides as Record<string, string>)['--xy-edge-stroke-default'] = '#111111';
-        (styleOverrides as Record<string, string>)['--xy-edge-stroke'] = '#111111';
-        (styleOverrides as Record<string, string>)['--xy-edge-stroke-selected-default'] = '#1d4ed8';
-        (styleOverrides as Record<string, string>)['--xy-edge-stroke-selected'] = '#1d4ed8';
-        (styleOverrides as Record<string, string>)['--xy-edge-stroke-width-default'] = '2';
-        (styleOverrides as Record<string, string>)['--xy-edge-stroke-width'] = '2';
-        (styleOverrides as Record<string, string>)['--xy-edge-stroke-width-selected-default'] = '3';
-        (styleOverrides as Record<string, string>)['--xy-edge-stroke-width-selected'] = '3';
-
-        // コネクションライン用の変数も設定
-        (styleOverrides as Record<string, string>)['--xy-connectionline-stroke-default'] = '#111111';
-        (styleOverrides as Record<string, string>)['--xy-connectionline-stroke'] = '#111111';
-        (styleOverrides as Record<string, string>)['--xy-connectionline-stroke-width-default'] = '2';
-        (styleOverrides as Record<string, string>)['--xy-connectionline-stroke-width'] = '2';
 
         const dataUrl = await mod.toPng(viewportElement as HTMLElement, {
           backgroundColor: '#ffffff',
           width: imageWidth,
           height: imageHeight,
           cacheBust: true,
+          pixelRatio: 2, // 高解像度で出力
           style: styleOverrides,
           filter: (node) => {
-            // ノード関連要素を含める
-            if (node.classList?.contains('react-flow__node')) return true;
+            // 除外する要素を先にチェック
+            if (node.classList?.contains('react-flow__minimap')) return false;
+            if (node.classList?.contains('react-flow__controls')) return false;
+            if (node.classList?.contains('react-flow__panel')) return false;
+            if (node.classList?.contains('react-flow__attribution')) return false;
 
-            // エッジ関連要素を全て含める
+            // SVG要素は必ず含める（エッジ描画に必須）
+            const tagName = node.tagName?.toUpperCase();
+            if (tagName === 'SVG' || tagName === 'PATH' || tagName === 'G' ||
+                tagName === 'DEFS' || tagName === 'MARKER' || tagName === 'CIRCLE' ||
+                tagName === 'POLYLINE' || tagName === 'LINE') {
+              return true;
+            }
+
+            // React Flow要素を全て含める
+            if (node.classList?.contains('react-flow__viewport')) return true;
+            if (node.classList?.contains('react-flow__edges')) return true;
             if (node.classList?.contains('react-flow__edge')) return true;
             if (node.classList?.contains('react-flow__edge-path')) return true;
-            if (node.classList?.contains('react-flow__edges')) return true;
             if (node.classList?.contains('react-flow__edge-text')) return true;
             if (node.classList?.contains('react-flow__edge-textbg')) return true;
             if (node.classList?.contains('react-flow__edge-textwrapper')) return true;
             if (node.classList?.contains('react-flow__edgelabel-renderer')) return true;
+            if (node.classList?.contains('react-flow__nodes')) return true;
+            if (node.classList?.contains('react-flow__node')) return true;
 
-            // SVG要素も含める（エッジは通常SVGで描画される）
-            if (node.tagName === 'svg' || node.tagName === 'path' || node.tagName === 'marker') return true;
-
-            // 除外する要素
-            if (node.classList?.contains('react-flow__minimap')) return false;
-            if (node.classList?.contains('react-flow__controls')) return false;
-            if (node.classList?.contains('react-flow__panel')) return false;
-
-            // その他は含める
+            // デフォルトは含める
             return true;
           },
         });
@@ -1190,6 +1207,127 @@ const loadRemoteFromServerRef = useRef<(options?: { fitView?: boolean }) => Prom
       } catch (e) {
         console.error('PNG export error:', e);
         alert('PNG エクスポートに失敗しました。');
+      }
+    },
+    exportSvg: async () => {
+      const root = containerRef.current;
+      if (!root) return;
+
+      try {
+        // React Flowのビューポート要素を取得
+        const viewportElement = document.querySelector('.react-flow__viewport');
+        if (!viewportElement) {
+          throw new Error('React Flow viewport element not found');
+        }
+
+        // 全ノードの境界を計算
+        const nodesBounds = getNodesBounds(rf.getNodes());
+        const imageWidth = 1024;
+        const imageHeight = 768;
+        const viewport = getViewportForBounds(nodesBounds, imageWidth, imageHeight, 0.5, 2, 0);
+
+        // SVGコンテナを作成
+        const svgNamespace = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(svgNamespace, 'svg');
+        svg.setAttribute('width', imageWidth.toString());
+        svg.setAttribute('height', imageHeight.toString());
+        svg.setAttribute('viewBox', `0 0 ${imageWidth} ${imageHeight}`);
+        svg.setAttribute('xmlns', svgNamespace);
+
+        // 背景
+        const background = document.createElementNS(svgNamespace, 'rect');
+        background.setAttribute('width', '100%');
+        background.setAttribute('height', '100%');
+        background.setAttribute('fill', '#ffffff');
+        svg.appendChild(background);
+
+        // ビューポート変換用のグループ
+        const g = document.createElementNS(svgNamespace, 'g');
+        g.setAttribute('transform', `translate(${viewport.x}, ${viewport.y}) scale(${viewport.zoom})`);
+        svg.appendChild(g);
+
+        // エッジをコピー（React FlowのSVGエッジ要素）
+        // React Flowは .react-flow__edges > svg:not(.react-flow__marker) 構造でエッジを描画
+        const edgesContainer = viewportElement.querySelector('.react-flow__edges');
+        console.log('[SVG Export Debug] Edges container:', edgesContainer);
+
+        if (edgesContainer) {
+          // マーカー定義SVGをコピー（矢印用）
+          const markerSvg = edgesContainer.querySelector('svg.react-flow__marker');
+          if (markerSvg) {
+            const clonedMarker = markerSvg.cloneNode(true) as SVGElement;
+            g.appendChild(clonedMarker);
+            console.log('[SVG Export Debug] Copied marker definitions');
+          }
+
+          // 実際のエッジを描画するSVG要素を取得（マーカー以外のSVG）
+          const allSvgs = edgesContainer.querySelectorAll('svg');
+          console.log('[SVG Export Debug] Total SVG elements in edges container:', allSvgs.length);
+
+          let edgePathCount = 0;
+          allSvgs.forEach((svg, index) => {
+            if (!svg.classList.contains('react-flow__marker')) {
+              console.log('[SVG Export Debug] Processing edge SVG', index, ':', svg);
+              const clonedEdges = svg.cloneNode(true) as SVGElement;
+
+              // エッジのpath要素にstrokeを明示的に設定
+              const edgePaths = clonedEdges.querySelectorAll('.react-flow__edge-path');
+              console.log('[SVG Export Debug] Found', edgePaths.length, 'edge paths in SVG', index);
+
+              edgePaths.forEach((path) => {
+                (path as SVGPathElement).setAttribute('stroke', '#111111');
+                (path as SVGPathElement).setAttribute('stroke-width', '2');
+                (path as SVGPathElement).setAttribute('fill', 'none');
+                edgePathCount++;
+              });
+
+              g.appendChild(clonedEdges);
+            }
+          });
+
+          console.log('[SVG Export Debug] Total edge paths copied:', edgePathCount);
+        } else {
+          console.warn('[SVG Export Debug] No .react-flow__edges container found');
+        }
+
+        // ノードをSVG foreignObjectとして追加
+        const nodeElements = viewportElement.querySelectorAll('.react-flow__node');
+        nodeElements.forEach((nodeEl) => {
+          const htmlNode = nodeEl as HTMLElement;
+          const nodeId = htmlNode.getAttribute('data-id');
+          const node = rf.getNodes().find(n => n.id === nodeId);
+          if (!node) return;
+
+          const foreignObject = document.createElementNS(svgNamespace, 'foreignObject');
+          foreignObject.setAttribute('x', node.position.x.toString());
+          foreignObject.setAttribute('y', node.position.y.toString());
+          foreignObject.setAttribute('width', (node.width || 300).toString());
+          foreignObject.setAttribute('height', (node.height || 100).toString());
+
+          // ノードのHTMLをコピー
+          const clonedNode = htmlNode.cloneNode(true) as HTMLElement;
+          foreignObject.appendChild(clonedNode);
+          g.appendChild(foreignObject);
+        });
+
+        console.log('[SVG Export Debug] Created SVG with nodes and edges');
+
+        // SVGをシリアライズしてダウンロード
+        const serializer = new XMLSerializer();
+        const svgString = serializer.serializeToString(svg);
+        const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement('a');
+        a.setAttribute('download', `board-${boardId}.svg`);
+        a.setAttribute('href', url);
+        a.click();
+
+        URL.revokeObjectURL(url);
+        console.log('[SVG Export] Download initiated');
+      } catch (e) {
+        console.error('SVG export error:', e);
+        alert('SVG エクスポートに失敗しました。');
       }
     },
     clearBoard: () => {
@@ -1233,6 +1371,8 @@ const loadRemoteFromServerRef = useRef<(options?: { fitView?: boolean }) => Prom
         nodeTypes={nodeTypes}
         defaultEdgeOptions={defaultEdgeOptions}
         fitView={false}
+        minZoom={0.1}
+        maxZoom={4}
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="rgba(148, 163, 184, 0.3)" />
         <MiniMap />

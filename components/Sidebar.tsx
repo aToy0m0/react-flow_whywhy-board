@@ -110,7 +110,18 @@ export default function Sidebar({ isOpen, onClose, boardRef, fileRef }: SidebarP
               </div>
             </button>
 
-            <button 
+            <button
+              onClick={() => boardRef.current?.exportSvg()}
+              className="flex items-center w-full p-4 text-left bg-white hover:bg-gray-50 rounded-xl transition-all duration-200 border border-gray-100 hover:border-gray-200 hover:shadow-md group"
+            >
+              <ImageIcon size={20} className="text-purple-600 mr-4 group-hover:scale-110 transition-transform" aria-hidden />
+              <div>
+                <div className="font-semibold text-gray-800">SVG書き出し</div>
+                <div className="text-xs text-gray-500">ベクター形式で保存</div>
+              </div>
+            </button>
+
+            <button
               onClick={() => boardRef.current?.exportPng()}
               className="flex items-center w-full p-4 text-left bg-white hover:bg-gray-50 rounded-xl transition-all duration-200 border border-gray-100 hover:border-gray-200 hover:shadow-md group"
             >
