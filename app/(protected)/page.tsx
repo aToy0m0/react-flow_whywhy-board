@@ -21,7 +21,11 @@ export default async function DashboardPage() {
           select: { name: true }
         }),
         prisma.board.findMany({
-          where: { tenantId },
+          where: {
+            tenantId,
+            status: "ACTIVE",
+            deletedAt: null,
+          },
           orderBy: { updatedAt: "desc" },
           take: 4,
           select: {

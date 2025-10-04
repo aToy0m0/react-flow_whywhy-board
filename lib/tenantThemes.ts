@@ -47,7 +47,7 @@ const CSS_VARIABLE_NAMES = [
 
 export type CssVariableName = (typeof CSS_VARIABLE_NAMES)[number];
 
-export type TenantThemeKey = 'midnight' | 'lagoon' | 'sunrise' | 'forest' | 'bright' | 'earth' | 'modern';
+export type TenantThemeKey = 'bright' | 'earth' | 'modern' | 'mintgarden' | 'midnight' | 'lagoon' | 'sunrise' | 'forest';
 
 export type TenantTheme = {
   key: TenantThemeKey;
@@ -377,8 +377,8 @@ const earthTheme: TenantTheme = {
 
 const modernTheme: TenantTheme = {
   key: 'modern',
-  label: 'Modern Gray',
-  description: 'モダンでミニマルなグレーベースのスタイリッシュテーマ',
+  label: 'Modern Orange',
+  description: 'モダンでミニマルなグレーとオレンジのスタイリッシュテーマ',
   previewGradient: 'linear-gradient(135deg, #eff0f3 0%, #ff8e3c 100%)',
   cssVars: {
     '--color-background': '#eff0f3',
@@ -428,14 +428,68 @@ const modernTheme: TenantTheme = {
   },
 };
 
+const mintgardenTheme: TenantTheme = {
+  key: 'mintgarden',
+  label: 'Lime Meadow',
+  description: '淡いライムグリーンで柔らかな光を感じるライトテーマ',
+  previewGradient: 'linear-gradient(135deg, #f7fff6 0%, #9af7c4 100%)',
+  cssVars: {
+    '--color-background': '#f0fdf4',
+    '--color-headline': '#064e3b',
+    '--color-paragraph': '#065f46',
+    '--color-muted': '#047857',
+    '--color-subtle': '#059669',
+    '--color-highlight': '#10b981',
+    '--color-secondary': '#d1fae5',
+    '--color-tertiary': '#34d399',
+    '--color-main': '#f0fdf4',
+    '--color-button': '#10b981',
+    '--color-button-text': '#064e3b',
+    '--color-button-hover': '#059669',
+    '--color-danger-text': '#dc2626',
+    '--surface-card-muted': 'rgba(6, 78, 59, 0.03)',
+    '--surface-card': 'rgba(6, 78, 59, 0.05)',
+    '--surface-card-strong': 'rgba(6, 78, 59, 0.08)',
+    '--surface-muted': 'rgba(4, 120, 87, 0.06)',
+    '--surface-panel': 'rgba(209, 250, 229, 0.5)',
+    '--surface-code': 'rgba(209, 250, 229, 0.3)',
+    '--surface-overlay': 'rgba(240, 253, 244, 0.95)',
+    '--surface-overlay-strong': 'rgba(240, 253, 244, 0.98)',
+    '--surface-hover': 'rgba(16, 185, 129, 0.08)',
+    '--surface-hover-strong': 'rgba(16, 185, 129, 0.12)',
+    '--surface-active': 'rgba(16, 185, 129, 0.18)',
+    '--surface-danger': 'rgba(220, 38, 38, 0.08)',
+    '--border-subtle': 'rgba(6, 78, 59, 0.12)',
+    '--border-soft': 'rgba(6, 78, 59, 0.18)',
+    '--border-overlay': 'rgba(6, 78, 59, 0.25)',
+    '--border-accent': 'rgba(16, 185, 129, 0.6)',
+    '--border-soft-accent': 'rgba(16, 185, 129, 0.4)',
+    '--border-accent-strong': 'rgba(16, 185, 129, 0.8)',
+    '--border-strong': 'rgba(6, 78, 59, 0.25)',
+    '--border-danger': 'rgba(220, 38, 38, 0.4)',
+    '--accent-solid': '#10b981',
+    '--accent-solid-hover': '#059669',
+    '--accent-soft': '#6ee7b7',
+    '--accent-soft-hover': '#a7f3d0',
+    '--accent-border': '#10b981',
+    '--accent-border-active': '#059669',
+    '--accent-ring': 'rgba(16, 185, 129, 0.3)',
+    '--accent-ring-soft': 'rgba(110, 231, 183, 0.5)',
+    '--ring-primary': 'rgba(6, 78, 59, 0.15)',
+    '--ring-highlight': 'rgba(16, 185, 129, 0.25)',
+    '--grid-dot-color': 'rgba(6, 78, 59, 0.15)',
+  },
+};
+
 const TENANT_THEMES: Record<TenantThemeKey, TenantTheme> = {
+  bright: brightTheme,
+  earth: earthTheme,
+  modern: modernTheme,
+  mintgarden: mintgardenTheme,
   midnight: midnightTheme,
   lagoon: lagoonTheme,
   sunrise: sunriseTheme,
   forest: forestTheme,
-  bright: brightTheme,
-  earth: earthTheme,
-  modern: modernTheme,
 };
 
 export const DEFAULT_TENANT_THEME_KEY: TenantThemeKey = 'bright';

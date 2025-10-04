@@ -28,4 +28,5 @@ yarn-error.log
 
 # 任意で除外（テスト・ドキュメント）
 tests
+test*
 *.md

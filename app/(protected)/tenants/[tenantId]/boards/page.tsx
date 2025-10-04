@@ -33,6 +33,7 @@ export default async function TenantBoardListPage({ params }: Props) {
   }
 
   const isSuperAdmin = user.role === "SUPER_ADMIN";
+  const isAdmin = user.role === "TENANT_ADMIN" || isSuperAdmin;
   const isTenantMember = user.tenantId === tenant.id;
   if (!isSuperAdmin && !isTenantMember) {
     redirect("/");
@@ -45,6 +46,7 @@ export default async function TenantBoardListPage({ params }: Props) {
       id: true,
       boardKey: true,
       name: true,
+      status: true,
       updatedAt: true,
     },
   });
@@ -53,6 +55,7 @@ export default async function TenantBoardListPage({ params }: Props) {
     id: board.id,
     boardKey: board.boardKey,
     name: board.name,
+    status: board.status,
     updatedAt: board.updatedAt.toLocaleString(),
   }));
 
@@ -72,7 +75,7 @@ export default async function TenantBoardListPage({ params }: Props) {
           </Link>
         </header>
 
-        <BoardListClient tenantId={tenant.slug} initialBoards={initialBoards} />
+        <BoardListClient tenantId={tenant.slug} initialBoards={initialBoards} isAdmin={isAdmin} />
       </div>
     </main>
   );

@@ -80,3 +80,4 @@ tmp/
 temp/
 *.pem
 *.key
+test*

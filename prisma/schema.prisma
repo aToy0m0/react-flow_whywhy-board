@@ -31,7 +31,7 @@ model Tenant {
   id        String     @id @default(cuid())
   slug      String     @unique
   name      String
-  themeKey  String     @default("midnight")
+  themeKey  String     @default("bright")
   boards    Board[]
   users     User[]
   nodes     Node[]

@@ -9,6 +9,9 @@ const crypto = require('crypto');
 
 const prisma = new PrismaClient();
 
+// デバッグモード（環境変数で制御）
+const DEBUG_AUTH = process.env.NEXTAUTH_DEBUG === 'true';
+
 // NextAuth互換の鍵導出関数
 const deriveNextAuthKey = (secret, salt = '') =>
   hkdf('sha256', secret, salt, `NextAuth.js Generated Encryption Key${salt ? ` (${salt})` : ''}`, 32);
@@ -228,11 +231,15 @@ app.prepare().then(() => {
       const cookieHeader = socket.handshake.headers.cookie;
       let sessionToken = null;
 
-      console.log('[Socket.IO Auth Debug] Cookie header:', cookieHeader);
+      if (DEBUG_AUTH) {
+        console.log('[Socket.IO Auth Debug] Cookie header:', cookieHeader);
+      }
 
       if (cookieHeader) {
         const cookies = cookieHeader.split(';').map(c => c.trim());
-        console.log('[Socket.IO Auth Debug] Parsed cookies:', cookies);
+        if (DEBUG_AUTH) {
+          console.log('[Socket.IO Auth Debug] Parsed cookies:', cookies);
+        }
 
         const tokenCookie = cookies.find(c =>
           c.startsWith('next-auth.session-token=') ||
@@ -241,12 +248,18 @@ app.prepare().then(() => {
 
         if (tokenCookie) {
           sessionToken = tokenCookie.split('=')[1];
-          console.log('[Socket.IO Auth Debug] Extracted token (first 50 chars):', sessionToken?.substring(0, 50));
+          if (DEBUG_AUTH) {
+            console.log('[Socket.IO Auth Debug] Extracted token (first 50 chars):', sessionToken?.substring(0, 50));
+          }
         } else {
-          console.log('[Socket.IO Auth Debug] NextAuth cookie not found in:', cookies);
+          if (DEBUG_AUTH) {
+            console.log('[Socket.IO Auth Debug] NextAuth cookie not found in:', cookies);
+          }
         }
       } else {
-        console.log('[Socket.IO Auth Debug] No cookie header present');
+        if (DEBUG_AUTH) {
+          console.log('[Socket.IO Auth Debug] No cookie header present');
+        }
       }
 
       // セッショントークンがある場合はJWE復号化
@@ -263,7 +276,9 @@ app.prepare().then(() => {
           const encryptionKey = await deriveNextAuthKey(secret);
           const { payload } = await jwtDecrypt(sessionToken, encryptionKey, { clockTolerance: 15 });
 
-          console.log('[Socket.IO Auth Debug] Decrypted payload:', payload);
+          if (DEBUG_AUTH) {
+            console.log('[Socket.IO Auth Debug] Decrypted payload:', payload);
+          }
 
           const userId = payload.id || payload.sub;
 
@@ -331,28 +346,8 @@ app.prepare().then(() => {
         }
       }
 
-      // トークンがない場合は既存の動作（後方互換性のため一時的に許可）
-      // TODO: 将来的にはトークン必須にする
-      const { userId } = a;
-      if (tenantId && boardKey && userId) {
-        console.warn('[Socket.IO Auth] Legacy authentication (no cookie):', {
-          socketId: socket.id,
-          userId,
-          tenantId,
-          boardKey
-        });
-        socket.data = {
-          tenantId,
-          boardKey,
-          userId,
-          roomId: `${tenantId}:${boardKey}`,
-          authenticated: false // レガシー認証フラグ
-        };
-        return next();
-      }
-
-      // 認証情報が不足している場合
-      console.warn('[Socket.IO Auth] Missing authentication data');
+      // トークンがない場合は認証拒否（セキュリティ強化）
+      console.warn('[Socket.IO Auth] Missing session token - authentication required');
       return next(new Error('Authentication required'));
     } catch (error) {
       console.error('[Socket.IO Auth] Unexpected error:', error);
@@ -385,16 +380,49 @@ app.prepare().then(() => {
       });
     }
 
+    // 認証チェックヘルパー関数
+    const requireAuth = (eventName) => {
+      if (!socket.data.authenticated) {
+        console.error(`[Socket.IO] Unauthorized ${eventName} attempt:`, {
+          socketId: socket.id,
+          userId: socket.data.userId
+        });
+        socket.disconnect(true);
+        return false;
+      }
+      return true;
+    };
+
     // ボードルームに参加
     socket.on('join-board', (data) => {
+      if (!requireAuth('join-board')) return;
       const { tenantId, boardKey, userId } = data;
-      const roomId = `${tenantId}:${boardKey}`;
 
+      // ハンドシェイクで確立した認証情報との整合性チェック
+      if (socket.data.tenantId !== tenantId) {
+        console.error('[Socket.IO] join-board: Tenant mismatch', {
+          authenticated: socket.data.tenantId,
+          requested: tenantId,
+          socketId: socket.id
+        });
+        socket.emit('error', { message: 'Tenant mismatch' });
+        socket.disconnect(true);
+        return;
+      }
+
+      if (socket.data.userId !== userId) {
+        console.warn('[Socket.IO] join-board: userId mismatch (ignoring client value)', {
+          authenticated: socket.data.userId,
+          requested: userId
+        });
+        // クライアントが送信したuserIdは無視し、認証済みの値を使用
+      }
+
+      const roomId = `${tenantId}:${boardKey}`;
       socket.join(roomId);
       socket.data.roomId = roomId;
-      socket.data.userId = userId;
-      socket.data.tenantId = tenantId;
       socket.data.boardKey = boardKey;
+      // userId と tenantId はハンドシェイクで確立済みなので上書きしない
 
       console.log('[Socket.IO] User joined board:', {
         socketId: socket.id,
@@ -411,6 +439,7 @@ app.prepare().then(() => {
 
     // ノードロック要求（ensure+lock原子化）
     socket.on('lock-node', async ({ nodeId, ensure }) => {
+      if (!requireAuth('lock-node')) return;
       const { roomId, userId, tenantId, boardKey } = socket.data;
       if (!roomId || !userId || userId === 'anonymous') {
         socket.emit('lock-error', { nodeId, error: 'Authentication required' });
@@ -643,6 +672,7 @@ app.prepare().then(() => {
 
     // ノードロック解除
     socket.on('unlock-node', async ({ nodeId }) => {
+      if (!requireAuth('unlock-node')) return;
       const { roomId, userId, tenantId, boardKey } = socket.data;
       if (!roomId || !userId || userId === 'anonymous') {
         socket.emit('unlock-error', { nodeId, error: 'Authentication required' });
@@ -719,6 +749,7 @@ app.prepare().then(() => {
 
     // ノード更新通知
     socket.on('node-updated', async (data) => {
+      if (!requireAuth('node-updated')) return;
       const { nodeId, content, position, adopted, type } = data;
       const { roomId, userId, tenantId, boardKey } = socket.data;
       if (!roomId || !tenantId || !boardKey || !userId || userId === 'anonymous') return;
@@ -901,6 +932,7 @@ app.prepare().then(() => {
 
     // ノード削除
     socket.on('node-delete', async ({ nodeId }) => {
+      if (!requireAuth('node-delete')) return;
       const { roomId, userId, tenantId, boardKey } = socket.data;
       if (!roomId || !userId || userId === 'anonymous') {
         socket.emit('node-delete-error', { nodeId, error: 'Authentication required' });
@@ -1053,6 +1085,7 @@ app.prepare().then(() => {
 
     // ボードアクション（整列・クリア）の共有
     socket.on('board-action', async (data) => {
+      if (!requireAuth('board-action')) return;
       const { action } = data;
       const { roomId, userId, tenantId, boardKey } = socket.data;
       if (!roomId || !userId || userId === 'anonymous') return;
