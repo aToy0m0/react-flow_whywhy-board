@@ -3,8 +3,15 @@ const { parse } = require('url');
 const next = require('next');
 const { Server } = require('socket.io');
 const { PrismaClient } = require('@prisma/client');
+const { jwtDecrypt } = require('jose');
+const { default: hkdf } = require('@panva/hkdf');
+const crypto = require('crypto');
 
 const prisma = new PrismaClient();
+
+// NextAuth互換の鍵導出関数
+const deriveNextAuthKey = (secret, salt = '') =>
+  hkdf('sha256', secret, salt, `NextAuth.js Generated Encryption Key${salt ? ` (${salt})` : ''}`, 32);
 
 // レイアウト定数（クライアント側のlayoutConstants.tsから移植）
 const X_COL_GAP = 360;
@@ -212,13 +219,145 @@ app.prepare().then(() => {
   }
 
   // ハンドシェイク認証ミドルウェア
-  io.use((socket, next) => {
-    const a = socket.handshake.auth || socket.handshake.query || {};
-    const { tenantId, boardKey, userId } = a;
-    if (tenantId && boardKey && userId) {
-      socket.data = { tenantId, boardKey, userId, roomId: `${tenantId}:${boardKey}` };
+  io.use(async (socket, next) => {
+    try {
+      const a = socket.handshake.auth || socket.handshake.query || {};
+      const { tenantId, boardKey } = a;
+
+      // クッキーヘッダーからNextAuthトークンを抽出
+      const cookieHeader = socket.handshake.headers.cookie;
+      let sessionToken = null;
+
+      console.log('[Socket.IO Auth Debug] Cookie header:', cookieHeader);
+
+      if (cookieHeader) {
+        const cookies = cookieHeader.split(';').map(c => c.trim());
+        console.log('[Socket.IO Auth Debug] Parsed cookies:', cookies);
+
+        const tokenCookie = cookies.find(c =>
+          c.startsWith('next-auth.session-token=') ||
+          c.startsWith('__Secure-next-auth.session-token=')
+        );
+
+        if (tokenCookie) {
+          sessionToken = tokenCookie.split('=')[1];
+          console.log('[Socket.IO Auth Debug] Extracted token (first 50 chars):', sessionToken?.substring(0, 50));
+        } else {
+          console.log('[Socket.IO Auth Debug] NextAuth cookie not found in:', cookies);
+        }
+      } else {
+        console.log('[Socket.IO Auth Debug] No cookie header present');
+      }
+
+      // セッショントークンがある場合はJWE復号化
+      if (sessionToken) {
+        const secret = process.env.NEXTAUTH_SECRET;
+        if (!secret) {
+          console.error('[Socket.IO Auth] NEXTAUTH_SECRET is not configured');
+          return next(new Error('Server configuration error'));
+        }
+
+        try {
+          // NextAuth JWE（暗号化されたJWT）を復号化
+          // NextAuthと同じHKDFで鍵を導出
+          const encryptionKey = await deriveNextAuthKey(secret);
+          const { payload } = await jwtDecrypt(sessionToken, encryptionKey, { clockTolerance: 15 });
+
+          console.log('[Socket.IO Auth Debug] Decrypted payload:', payload);
+
+          const userId = payload.id || payload.sub;
+
+          if (!userId || typeof userId !== 'string') {
+            console.warn('[Socket.IO Auth] Invalid token: missing userId');
+            return next(new Error('Invalid authentication token'));
+          }
+
+          // DBでユーザーの存在とテナント所属を確認
+          const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { id: true, tenantId: true, role: true, email: true }
+          });
+
+          if (!user) {
+            console.warn('[Socket.IO Auth] User not found:', userId);
+            return next(new Error('User not found'));
+          }
+
+          // テナントスラグをIDに変換
+          const tenant = await prisma.tenant.findUnique({
+            where: { slug: tenantId },
+            select: { id: true }
+          });
+
+          if (!tenant) {
+            console.warn('[Socket.IO Auth] Tenant not found:', tenantId);
+            return next(new Error('Tenant not found'));
+          }
+
+          // ユーザーのテナント所属を確認
+          if (user.tenantId !== tenant.id) {
+            console.warn('[Socket.IO Auth] User does not belong to tenant:', {
+              userId: user.id,
+              userTenantId: user.tenantId,
+              requestedTenantId: tenant.id
+            });
+            return next(new Error('Access denied: user does not belong to this tenant'));
+          }
+
+          // 認証成功: socket.dataに認証済み情報を格納
+          socket.data = {
+            tenantId,
+            boardKey,
+            userId: user.id,
+            userRole: user.role,
+            userEmail: user.email,
+            roomId: `${tenantId}:${boardKey}`,
+            authenticated: true
+          };
+
+          console.log('[Socket.IO Auth] Authenticated via cookie:', {
+            socketId: socket.id,
+            userId: user.id,
+            userEmail: user.email,
+            tenantId,
+            boardKey
+          });
+
+          return next();
+        } catch (jweError) {
+          console.error('[Socket.IO Auth] JWE decryption failed:', jweError.message);
+          console.error('[Socket.IO Auth] Error details:', jweError);
+          return next(new Error('Invalid or expired authentication token'));
+        }
+      }
+
+      // トークンがない場合は既存の動作（後方互換性のため一時的に許可）
+      // TODO: 将来的にはトークン必須にする
+      const { userId } = a;
+      if (tenantId && boardKey && userId) {
+        console.warn('[Socket.IO Auth] Legacy authentication (no cookie):', {
+          socketId: socket.id,
+          userId,
+          tenantId,
+          boardKey
+        });
+        socket.data = {
+          tenantId,
+          boardKey,
+          userId,
+          roomId: `${tenantId}:${boardKey}`,
+          authenticated: false // レガシー認証フラグ
+        };
+        return next();
+      }
+
+      // 認証情報が不足している場合
+      console.warn('[Socket.IO Auth] Missing authentication data');
+      return next(new Error('Authentication required'));
+    } catch (error) {
+      console.error('[Socket.IO Auth] Unexpected error:', error);
+      return next(new Error('Authentication failed'));
     }
-    next();
   });
 
   // Socket.IOの名前空間とイベント処理

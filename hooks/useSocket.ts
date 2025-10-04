@@ -72,12 +72,16 @@ export function useSocket(options: UseSocketOptions) {
 
     // 既存socketがあれば使う（作り直さない）
     if (!socketRef.current) {
+      // 認証オブジェクト: tenantIdとboardKeyのみ（NextAuthクッキーはブラウザが自動送信）
+      const authPayload = { tenantId, boardKey, userId };
+
       socketRef.current = io({
         transports: ['websocket'], // まずWSだけで安定化を確認
         reconnection: true,
         reconnectionDelay: 1500,
         reconnectionAttempts: 10,
-        auth: { tenantId, boardKey, userId }, // ハンドシェイクで渡す
+        auth: authPayload, // ハンドシェイクで渡す
+        withCredentials: true, // クッキーを含める（重要！）
         timeout: 10000,
       });
 
@@ -174,7 +178,7 @@ export function useSocket(options: UseSocketOptions) {
       // socketRef.current?.disconnect();
       // socketRef.current = null;
     };
-  }, [tenantId, boardKey, userId]); // ← 不要に増やさない
+  }, [tenantId, boardKey, userId]);
 
   // ノードロック要求（ensure+lock原子化）
   const lockNode = (nodeId: string, ensure?: {

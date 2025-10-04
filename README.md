@@ -7,9 +7,9 @@
 - ノードベースのビジュアル分析エディタ
 - ドラッグ&ドロップによるノード作成・編集
 - Root、Why、Cause、Actionノードによる分析構造化
-- PNG形式での図の出力
 - 組織（テナント）単位でのユーザー管理
 - 3段階のユーザー権限（SUPER_ADMIN、TENANT_ADMIN、MEMBER）
+- PNG形式での図の出力
 - TOML形式でのデータインポート・エクスポート
 
 ## 技術スタック
@@ -22,6 +22,7 @@
 - NextAuth.js
 - React Flow v12
 - Tailwind CSS
+- Socket.io
 
 ## セットアップ
 

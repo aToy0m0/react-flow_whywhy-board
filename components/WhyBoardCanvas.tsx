@@ -102,6 +102,7 @@ const loadRemoteFromServerRef = useRef<(options?: { fitView?: boolean }) => Prom
 
 
   // Socket.IO統合（同時編集用）- 認証済みユーザーのみ
+  // 注: NextAuthセッショントークンは HttpOnly クッキーとしてサーバーに自動送信される
   const { lockNode: socketLockNode, unlockNode: socketUnlockNode, socket, notifyNodeUpdate: socketNotifyNodeUpdate, deleteNode: socketDeleteNode, sendBoardAction } = useSocket({
     tenantId: tenantSlug,
     boardKey: boardId,
