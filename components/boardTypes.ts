@@ -21,6 +21,7 @@ export type WhyNodeData = {
   isMenuOpen: boolean;
   // ロック機能
   currentUserId?: string;
+  currentUserName?: string;
   lockNode?: (nodeId: string) => void;
   unlockNode?: (nodeId: string) => void;
   // Socket.IO同期機能

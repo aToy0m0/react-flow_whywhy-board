@@ -81,3 +81,5 @@ temp/
 *.pem
 *.key
 test*
+
+google-chrome-stable_current_amd64.deb

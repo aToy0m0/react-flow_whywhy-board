@@ -618,6 +618,7 @@ const loadRemoteFromServerRef = useRef<(options?: { fitView?: boolean }) => Prom
           isMenuOpen: node.id === menuOpenFor,
           // ロック機能
           currentUserId: session?.user?.id,
+          currentUserName: session?.user?.email ?? session?.user?.name ?? session?.user?.id ?? '',
           lockNode: lockNodeSafely,
           unlockNode: socketUnlockNode,
           // Socket.IO同期機能
@@ -631,7 +632,26 @@ const loadRemoteFromServerRef = useRef<(options?: { fitView?: boolean }) => Prom
         },
       };
     },
-    [boardId, closeMenu, deleteNode, edges, flushPendingNodeUpdate, getParentInfo, menuOpenFor, nodes, onToggleAdopted, openMenu, registerPendingNodeUpdate, setNodes, session?.user?.id, lockNodeSafely, notifyNodeUpdateSafely, socketUnlockNode]
+    [
+      boardId,
+      closeMenu,
+      deleteNode,
+      edges,
+      flushPendingNodeUpdate,
+      getParentInfo,
+      menuOpenFor,
+      nodes,
+      onToggleAdopted,
+      openMenu,
+      registerPendingNodeUpdate,
+      setNodes,
+      session?.user?.id,
+      session?.user?.email,
+      session?.user?.name,
+      lockNodeSafely,
+      notifyNodeUpdateSafely,
+      socketUnlockNode,
+    ]
   );
   useEffect(() => {
     enhanceNodeRef.current = enhanceNode;

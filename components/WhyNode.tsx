@@ -37,9 +37,12 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
   const [editTimeout, setEditTimeout] = useState<NodeJS.Timeout | null>(null);
   const [syncTimeout, setSyncTimeout] = useState<NodeJS.Timeout | null>(null);
   const isEditingRef = useRef(false);
+  const isComposingRef = useRef(false);
 
   // ロック機能フック
   const {
+    lockNode: registerLocalLock,
+    unlockNode: releaseLocalLock,
     isNodeLocked,
     getNodeLockInfo,
     isNodeLockedByCurrentUser
@@ -73,32 +76,50 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
     }
     isEditingRef.current = true;
 
+    if (!lockedByMe && d.currentUserId && registerLocalLock) {
+      registerLocalLock(
+        id,
+        d.currentUserId,
+        d.currentUserName ?? d.currentUserId,
+        new Date().toISOString()
+      );
+    }
+
     // Socket.IOでロック要求
     if (d.lockNode) {
       d.lockNode(id);
     }
-  }, [canEdit, d, editTimeout, id, setEditTimeout]);
+  }, [canEdit, d, editTimeout, id, lockedByMe, registerLocalLock, setEditTimeout]);
 
-  const handleTextChange = useCallback((newValue: string) => {
+  const handleTextChange = useCallback((newValue: string, options?: { forceSync?: boolean }) => {
     d.onChangeLabel(id, newValue);
 
     console.log('[WhyNode] Text changed:', { id, newValue: newValue.substring(0, 20), canEdit });
 
     if (syncTimeout) {
       clearTimeout(syncTimeout);
+      setSyncTimeout(null);
+    }
+
+    d.registerPendingUpdate?.(id, { content: newValue });
+
+    if (isComposingRef.current && !options?.forceSync) {
+      return;
+    }
+
+    if (options?.forceSync) {
+      console.log('[WhyNode] Force flushing pending update:', { id });
+      d.flushPendingUpdate?.(id);
+      return;
     }
 
     const timeout = setTimeout(() => {
-      if (d.notifyNodeUpdate && canEdit) {
-        console.log('[WhyNode] Sending sync via notifyNodeUpdate:', { id, newValue: newValue.substring(0, 20) });
-        d.notifyNodeUpdate(id, newValue);
-      } else {
-        console.log('[WhyNode] Sync skipped:', { hasNotify: !!d.notifyNodeUpdate, canEdit });
-      }
+      console.log('[WhyNode] Debounced flush for node:', { id });
+      d.flushPendingUpdate?.(id);
+      setSyncTimeout(null);
     }, 500);
 
     setSyncTimeout(timeout);
-    d.registerPendingUpdate?.(id, { content: newValue });
   }, [syncTimeout, d, id, canEdit]);
 
   const handleEditEnd = useCallback(() => {
@@ -107,6 +128,7 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
     }
 
     isEditingRef.current = false;
+    isComposingRef.current = false;
     d.flushPendingUpdate?.(id);
 
     const timeout = setTimeout(() => {
@@ -129,11 +151,14 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
       } else {
         console.log('[WhyNode] Unlock skipped - conditions not met');
       }
+      if (lockedByMe && releaseLocalLock) {
+        releaseLocalLock(id);
+      }
       setEditTimeout(null);
     }, 2000);
 
     setEditTimeout(timeout);
-  }, [d, editTimeout, id, isNodeLockedByCurrentUser, lockedByMe, setEditTimeout]);
+  }, [d, editTimeout, id, isNodeLockedByCurrentUser, lockedByMe, releaseLocalLock, setEditTimeout]);
 
   useEffect(() => {
     return () => {
@@ -147,8 +172,11 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
       if (lockedByMe && d.unlockNode && isNodeLockedByCurrentUser(id, d.currentUserId || '')) {
         d.unlockNode(id);
       }
+      if (lockedByMe && releaseLocalLock) {
+        releaseLocalLock(id);
+      }
     };
-  }, [editTimeout, syncTimeout, lockedByMe, d, id, isNodeLockedByCurrentUser]);
+  }, [editTimeout, syncTimeout, lockedByMe, d, id, isNodeLockedByCurrentUser, releaseLocalLock]);
 
   return (
     <div
@@ -281,6 +309,19 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
         }}
         onFocus={handleEditStart}
         onBlur={handleEditEnd}
+        onCompositionStart={() => {
+          isComposingRef.current = true;
+          if (syncTimeout) {
+            clearTimeout(syncTimeout);
+            setSyncTimeout(null);
+          }
+        }}
+        onCompositionEnd={(e) => {
+          isComposingRef.current = false;
+          if (canEdit) {
+            handleTextChange(e.currentTarget.value, { forceSync: true });
+          }
+        }}
         onInput={(e) => {
           if (!canEdit) return;
           const el = e.currentTarget;
