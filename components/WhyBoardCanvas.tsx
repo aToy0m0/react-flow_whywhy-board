@@ -91,15 +91,15 @@ function CanvasInner({ tenantId, boardId, style, onBoardStateChange, onBoardDele
     unlockNode: releaseLock,
     isNodeLocked,
     isNodeLockedByCurrentUser,
-    getNodeLockInfo
+    getNodeLockInfo,
+    lockedNodes
   } = useNodeLock();
   const currentUserId = session?.user?.id || '';
   const [isBoardFinalized, setIsBoardFinalized] = useState(false);
-    const pendingNodeUpdatesRef = useRef(new Map<string, { content: string; position?: { x: number; y: number }; extra?: { adopted?: boolean; type?: string } }>());
+  const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
+  const pendingNodeUpdatesRef = useRef(new Map<string, { content: string; position?: { x: number; y: number }; extra?: { adopted?: boolean; type?: string } }>());
 
-const loadRemoteFromServerRef = useRef<(options?: { fitView?: boolean }) => Promise<void>>(() => Promise.resolve());
-
-
+  const loadRemoteFromServerRef = useRef<(options?: { fitView?: boolean }) => Promise<void>>(() => Promise.resolve());
 
   // Socket.IO統合（同時編集用）- 認証済みユーザーのみ
   // 注: NextAuthセッショントークンは HttpOnly クッキーとしてサーバーに自動送信される
@@ -411,6 +411,21 @@ const loadRemoteFromServerRef = useRef<(options?: { fitView?: boolean }) => Prom
     flushAllPendingNodeUpdates();
     sendBoardAction?.(action);
   }, [flushAllPendingNodeUpdates, isBoardFinalized, sendBoardAction, warnBoardFinalized]);
+
+  const requestBoardClear = useCallback(() => {
+    if (isBoardFinalized) {
+      warnBoardFinalized();
+      return;
+    }
+    setIsClearConfirmOpen(true);
+  }, [isBoardFinalized, warnBoardFinalized]);
+
+  const confirmBoardClear = useCallback(() => {
+    setIsClearConfirmOpen(false);
+    sendBoardActionSafely('clear');
+  }, [sendBoardActionSafely]);
+
+  const cancelBoardClear = useCallback(() => setIsClearConfirmOpen(false), []);
 
   // MARK: クエリ — 親 -> 子（作成順で安定ソート）
   const getChildren = useCallback((parentId: string) => getChildrenSorted(nodes, edges, parentId), [nodes, edges]);
@@ -1128,11 +1143,39 @@ const loadRemoteFromServerRef = useRef<(options?: { fitView?: boolean }) => Prom
       try {
         const mod = await import('html-to-image');
 
-        // 公式実装通り：ノードの境界とビューポートを計算
+        // エクスポート設定定数（固定サイズ + 自動ズーム方式）
+        const EXPORT_WIDTH = 2048;    // 固定幅 (4:3アスペクト比)
+        const EXPORT_HEIGHT = 1536;   // 固定高さ
+        const EXPORT_MIN_ZOOM = 0.05; // 最小5%（大規模ボード対応）
+        const EXPORT_MAX_ZOOM = 2.0;  // 最大200%
+        const EXPORT_PADDING = 0.1;   // 10%マージン
+        const ZOOM_WARNING_THRESHOLD = 0.2; // 20%以下で警告
+
+        // ノードの境界とビューポートを計算
         const nodesBounds = getNodesBounds(rf.getNodes());
-        const imageWidth = 1024;
-        const imageHeight = 768;
-        const viewport = getViewportForBounds(nodesBounds, imageWidth, imageHeight, 0.5, 2, 0);
+        const imageWidth = EXPORT_WIDTH;
+        const imageHeight = EXPORT_HEIGHT;
+        const viewport = getViewportForBounds(
+          nodesBounds,
+          imageWidth,
+          imageHeight,
+          EXPORT_MIN_ZOOM,
+          EXPORT_MAX_ZOOM,
+          EXPORT_PADDING
+        );
+
+        // ズームレベルが低い場合に警告
+        if (viewport.zoom < ZOOM_WARNING_THRESHOLD) {
+          const zoomPercent = Math.round(viewport.zoom * 100);
+          const confirmExport = window.confirm(
+            `ボードが非常に大きいため、縮小率が ${zoomPercent}% になります。\n` +
+            `一部の細かい文字が読みにくくなる可能性があります。\n\n` +
+            `このまま書き出しますか？`
+          );
+          if (!confirmExport) {
+            return; // ユーザーがキャンセル
+          }
+        }
 
         // エラーチェック追加
         const viewportElement = document.querySelector('.react-flow__viewport');
@@ -1235,6 +1278,14 @@ const loadRemoteFromServerRef = useRef<(options?: { fitView?: boolean }) => Prom
       if (!root) return;
 
       try {
+        // エクスポート設定定数（PNG出力と同一）
+        const EXPORT_WIDTH = 2048;
+        const EXPORT_HEIGHT = 1536;
+        const EXPORT_MIN_ZOOM = 0.05;
+        const EXPORT_MAX_ZOOM = 2.0;
+        const EXPORT_PADDING = 0.1;
+        const ZOOM_WARNING_THRESHOLD = 0.2;
+
         // React Flowのビューポート要素を取得
         const viewportElement = document.querySelector('.react-flow__viewport');
         if (!viewportElement) {
@@ -1243,9 +1294,29 @@ const loadRemoteFromServerRef = useRef<(options?: { fitView?: boolean }) => Prom
 
         // 全ノードの境界を計算
         const nodesBounds = getNodesBounds(rf.getNodes());
-        const imageWidth = 1024;
-        const imageHeight = 768;
-        const viewport = getViewportForBounds(nodesBounds, imageWidth, imageHeight, 0.5, 2, 0);
+        const imageWidth = EXPORT_WIDTH;
+        const imageHeight = EXPORT_HEIGHT;
+        const viewport = getViewportForBounds(
+          nodesBounds,
+          imageWidth,
+          imageHeight,
+          EXPORT_MIN_ZOOM,
+          EXPORT_MAX_ZOOM,
+          EXPORT_PADDING
+        );
+
+        // ズームレベルが低い場合に警告（PNG出力と同一ロジック）
+        if (viewport.zoom < ZOOM_WARNING_THRESHOLD) {
+          const zoomPercent = Math.round(viewport.zoom * 100);
+          const confirmExport = window.confirm(
+            `ボードが非常に大きいため、縮小率が ${zoomPercent}% になります。\n` +
+            `一部の細かい文字が読みにくくなる可能性があります。\n\n` +
+            `このまま書き出しますか？`
+          );
+          if (!confirmExport) {
+            return;
+          }
+        }
 
         // SVGコンテナを作成
         const svgNamespace = 'http://www.w3.org/2000/svg';
@@ -1352,8 +1423,7 @@ const loadRemoteFromServerRef = useRef<(options?: { fitView?: boolean }) => Prom
       }
     },
     clearBoard: () => {
-      // Socket.IO経由でサーバー側クリア実行
-      sendBoardActionSafely('clear');
+      requestBoardClear();
     },
     relayoutAll: () => {
       // Socket.IO経由でサーバー側整列実行
@@ -1370,6 +1440,28 @@ const loadRemoteFromServerRef = useRef<(options?: { fitView?: boolean }) => Prom
     },
   }));
 
+  const handlePaneClick = useCallback(() => {
+    closeMenu();
+
+    if (!currentUserId) return;
+
+    const ownLockedNodes: string[] = [];
+    lockedNodes.forEach((info, nodeId) => {
+      if (info.userId === currentUserId) {
+        ownLockedNodes.push(nodeId);
+      }
+    });
+
+    if (ownLockedNodes.length === 0) return;
+
+    ownLockedNodes.forEach((nodeId) => {
+      flushPendingNodeUpdate(nodeId);
+      socketUnlockNode?.(nodeId);
+      releaseLock(nodeId);
+    });
+  }, [closeMenu, currentUserId, flushPendingNodeUpdate, lockedNodes, releaseLock, socketUnlockNode]);
+
+
   // MARK: Render
   return (
     <div 
@@ -1377,6 +1469,30 @@ const loadRemoteFromServerRef = useRef<(options?: { fitView?: boolean }) => Prom
       className="w-full h-[calc(100vh-64px)] pb-4 md:pb-6 lg:pb-8"
       style={style}
     >
+      {isClearConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" role="dialog" aria-modal="true" aria-label="ボードクリアの確認">
+          <div className="w-full max-w-sm rounded-2xl bg-white/95 p-6 shadow-xl backdrop-blur">
+            <h2 className="text-lg font-semibold text-gray-900">ボードをクリアしますか？</h2>
+            <p className="mt-2 text-sm text-gray-600">すべてのノードが削除され、元に戻せません。続行する場合は「クリアする」を押してください。</p>
+            <div className="mt-4 flex justify-end gap-3">
+              <button
+                type="button"
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-100"
+                onClick={cancelBoardClear}
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                className="rounded-lg bg-red-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-600"
+                onClick={confirmBoardClear}
+              >
+                クリアする
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -1386,7 +1502,7 @@ const loadRemoteFromServerRef = useRef<(options?: { fitView?: boolean }) => Prom
         onConnectStart={onConnectStart}
         onConnectEnd={onConnectEnd}
         onMoveEnd={onMoveEnd}
-        onPaneClick={() => closeMenu()}
+        onPaneClick={handlePaneClick}
         connectionMode={ConnectionMode.Strict}
         connectionRadius={28}
         nodeTypes={nodeTypes}

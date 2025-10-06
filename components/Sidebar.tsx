@@ -1,13 +1,9 @@
 "use client";
-import { 
-  Save, 
-  Upload, 
-  Download, 
-  FileText, 
+import {
+  Download,
+  FileText,
   Image as ImageIcon,
-  Database,
-  RefreshCw,
-  X 
+  X
 } from 'lucide-react';
 import type { BoardHandle } from './boardActions';
 
@@ -25,7 +21,7 @@ export default function Sidebar({ isOpen, onClose, boardRef, fileRef }: SidebarP
       <div className={`fixed left-0 top-0 h-full bg-white/95 backdrop-blur-xl shadow-2xl transition-transform duration-300 ease-in-out z-30 flex flex-col ${
         isOpen ? 'translate-x-0' : '-translate-x-full'
       }`} style={{ width: '280px' }}>
-        
+
         <div className="flex items-center justify-between p-6 border-b border-gray-100">
           <div>
             <h1 className="text-lg font-bold text-blue-900">WhyWhyボード</h1>
@@ -37,54 +33,6 @@ export default function Sidebar({ isOpen, onClose, boardRef, fileRef }: SidebarP
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          <div className="space-y-3">
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">保存・読み込み</h3>
-            
-            <button 
-              onClick={() => boardRef.current?.saveLocal()}
-              className="flex items-center w-full p-4 text-left bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
-            >
-              <Save size={20} className="mr-4" />
-              <div>
-                <div className="font-semibold">一時保存</div>
-                <div className="text-xs opacity-80">作業内容を安全に保存</div>
-              </div>
-            </button>
-
-            <button 
-              onClick={() => boardRef.current?.loadLocal()}
-              className="flex items-center w-full p-4 text-left bg-white hover:bg-gray-50 rounded-xl transition-all duration-200 border border-gray-200 hover:border-gray-300 hover:shadow-md"
-            >
-              <Upload size={20} className="text-indigo-600 mr-4" />
-              <div>
-                <div className="font-semibold text-gray-800">一時読込</div>
-                <div className="text-xs text-gray-500">保存済みファイルを読み込み</div>
-              </div>
-            </button>
-
-            <button 
-              onClick={() => boardRef.current?.saveRemote?.()}
-              className="flex items-center w-full p-4 text-left bg-white hover:bg-gray-50 rounded-xl transition-all duration-200 border border-blue-200 hover:border-blue-300 hover:shadow-md"
-            >
-              <Database size={20} className="text-blue-600 mr-4" />
-              <div>
-                <div className="font-semibold text-gray-800">サーバ保存</div>
-                <div className="text-xs text-gray-500">データベースへ保存</div>
-              </div>
-            </button>
-
-            <button 
-              onClick={() => boardRef.current?.loadRemote?.()}
-              className="flex items-center w-full p-4 text-left bg-white hover:bg-gray-50 rounded-xl transition-all duration-200 border border-blue-200 hover:border-blue-300 hover:shadow-md"
-            >
-              <RefreshCw size={20} className="text-blue-600 mr-4" />
-              <div>
-                <div className="font-semibold text-gray-800">サーバ読込</div>
-                <div className="text-xs text-gray-500">最新状態へ更新</div>
-              </div>
-            </button>
-          </div>
-
           <div className="space-y-3">
             <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">エクスポート</h3>
             

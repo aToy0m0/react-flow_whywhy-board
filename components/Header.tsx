@@ -78,8 +78,8 @@ export default function Header({ tenantId, boardId, boardName, renaming = false,
 
   return (
     <div className="bg-[rgba(255, 255, 255, 0.85)] backdrop-blur-xl shadow-sm border-b border-[rgba(0, 0, 0, 0.45)] px-4 py-3 sm:px-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-start gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3 sm:gap-4">
           <button
             onClick={onToggleSidebar}
             className="p-2.5 hover:bg-[rgba(0, 0, 0, 0.1)] rounded-xl transition-colors"
@@ -88,8 +88,8 @@ export default function Header({ tenantId, boardId, boardName, renaming = false,
             <Menu size={20} className="text-black" />
           </button>
 
-          <div className="flex flex-col gap-1 min-w-0">
-            <div className="flex items-center gap-2">
+          <div className="hidden min-w-0 flex-col gap-1 sm:flex">
+            <div className="flex items-center justify-start gap-1.5 sm:gap-3 sm:justify-end">
               <h1 className="text-lg font-semibold text-black truncate" title={boardName}>
                 {boardName}
               </h1>
@@ -113,7 +113,7 @@ export default function Header({ tenantId, boardId, boardName, renaming = false,
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-1 items-center justify-end gap-1.5 sm:gap-3">
           {getMenuItems({ boardRef, openHelpWindow, tenantId, isBoardFinalized }).map((item) => {
             const Icon = item.icon;
 
@@ -122,11 +122,12 @@ export default function Header({ tenantId, boardId, boardName, renaming = false,
                 <Link
                   key={item.label}
                   href={item.href}
-                  className="flex flex-col items-center px-3 py-2 hover:bg-[rgba(238,187,195,0.1)] rounded-xl transition-colors group"
+                  className="flex flex-col items-center justify-center min-w-[44px] px-2 py-1 rounded-xl transition-colors group hover:bg-[rgba(238,187,195,0.1)] sm:min-w-[72px] sm:px-3 sm:py-2"
                   title={item.tooltip}
+                  aria-label={item.label}
                 >
-                  <Icon size={18} className="text-black group-hover:text-gray-600 transition-colors mb-1" />
-                  <span className="text-xs text-black group-hover:text-gray-600 transition-colors">
+                  <Icon className="h-5 w-5 text-black group-hover:text-gray-600 transition-colors sm:h-5 sm:w-5 mb-0 sm:mb-1" />
+                  <span className="hidden text-xs text-black group-hover:text-gray-600 transition-colors sm:block">
                     {item.label}
                   </span>
                 </Link>
@@ -137,12 +138,13 @@ export default function Header({ tenantId, boardId, boardName, renaming = false,
               <button
                 key={item.label}
                 onClick={() => item.disabled ? undefined : item.onClick?.()}
-                className={`flex flex-col items-center px-3 py-2 rounded-xl transition-colors group ${item.disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-[rgba(238,187,195,0.1)]'}`}
+                className={`flex flex-col items-center justify-center min-w-[44px] px-2 py-1 rounded-xl transition-colors group sm:min-w-[72px] sm:px-3 sm:py-2 ${item.disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-[rgba(238,187,195,0.1)]'}`}
                 disabled={item.disabled}
                 title={item.tooltip}
+                aria-label={item.label}
               >
-                <Icon size={18} className="text-black group-hover:text-gray-600 transition-colors mb-1" />
-                <span className="text-xs text-black group-hover:text-gray-600 transition-colors">
+                <Icon className="h-5 w-5 text-black group-hover:text-gray-600 transition-colors sm:h-5 sm:w-5 mb-0 sm:mb-1" />
+                <span className="hidden text-xs text-black group-hover:text-gray-600 transition-colors sm:block">
                   {item.label}
                 </span>
               </button>

@@ -1,5 +1,6 @@
 "use client";
-import { memo, useEffect, useRef, useState, useCallback } from "react";
+import { memo, useEffect, useRef, useCallback } from "react";
+import type { PointerEvent as ReactPointerEvent, MouseEvent as ReactMouseEvent } from "react";
 import { Handle, Position, NodeProps, NodeToolbar } from "@xyflow/react";
 import type { Node as RFNode } from "@xyflow/react";
 import clsx from "clsx";
@@ -12,6 +13,8 @@ const colors: Record<NodeType, { border: string; bg: string }> = {
   cause: { border: "border-green-600", bg: "bg-green-50" },
   action: { border: "border-blue-600", bg: "bg-blue-50" },
 };
+
+const UNLOCK_DELAY_MS = 25000; // 25 seconds before auto-unlock on idle
 
 function Header({ type, index }: { type: NodeType; index?: number; adopted?: boolean }) {
   if (type === "root") return <div className="text-sm font-semibold text-black">問題</div>;
@@ -34,10 +37,14 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
   const d = data as WhyNodeData; // 型を明示
   const { index } = d.getParentInfo(id);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const [editTimeout, setEditTimeout] = useState<NodeJS.Timeout | null>(null);
-  const [syncTimeout, setSyncTimeout] = useState<NodeJS.Timeout | null>(null);
+  const editTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const syncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isEditingRef = useRef(false);
   const isComposingRef = useRef(false);
+  const longPressTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressTriggeredRef = useRef(false);
+  const isTouchPointerRef = useRef(false);
+
 
   // ロック機能フック
   const {
@@ -56,6 +63,37 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
   const lockedByMe = isNodeLockedByCurrentUser(id, d.currentUserId || '');
   const canEdit = !locked || lockedByMe;
 
+  const unlockNodeRef = useRef(d.unlockNode);
+  const releaseLocalLockRef = useRef(releaseLocalLock);
+  const flushPendingUpdateRef = useRef(d.flushPendingUpdate);
+  const currentUserIdRef = useRef(d.currentUserId || '');
+  const lockedByMeRef = useRef(lockedByMe);
+  const isNodeLockedByCurrentUserRef = useRef(isNodeLockedByCurrentUser);
+
+  useEffect(() => {
+    unlockNodeRef.current = d.unlockNode;
+  }, [d.unlockNode]);
+
+  useEffect(() => {
+    releaseLocalLockRef.current = releaseLocalLock;
+  }, [releaseLocalLock]);
+
+  useEffect(() => {
+    flushPendingUpdateRef.current = d.flushPendingUpdate;
+  }, [d.flushPendingUpdate]);
+
+  useEffect(() => {
+    currentUserIdRef.current = d.currentUserId || '';
+  }, [d.currentUserId]);
+
+  useEffect(() => {
+    lockedByMeRef.current = lockedByMe;
+  }, [lockedByMe]);
+
+  useEffect(() => {
+    isNodeLockedByCurrentUserRef.current = isNodeLockedByCurrentUser;
+  }, [isNodeLockedByCurrentUser]);
+
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -70,9 +108,9 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
   const handleEditStart = useCallback(() => {
     if (!canEdit) return;
 
-    if (editTimeout) {
-      clearTimeout(editTimeout);
-      setEditTimeout(null);
+    if (editTimeoutRef.current) {
+      clearTimeout(editTimeoutRef.current);
+      editTimeoutRef.current = null;
     }
     isEditingRef.current = true;
 
@@ -89,16 +127,16 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
     if (d.lockNode) {
       d.lockNode(id);
     }
-  }, [canEdit, d, editTimeout, id, lockedByMe, registerLocalLock, setEditTimeout]);
+  }, [canEdit, d, id, lockedByMe, registerLocalLock]);
 
   const handleTextChange = useCallback((newValue: string, options?: { forceSync?: boolean }) => {
     d.onChangeLabel(id, newValue);
 
     console.log('[WhyNode] Text changed:', { id, newValue: newValue.substring(0, 20), canEdit });
 
-    if (syncTimeout) {
-      clearTimeout(syncTimeout);
-      setSyncTimeout(null);
+    if (syncTimeoutRef.current) {
+      clearTimeout(syncTimeoutRef.current);
+      syncTimeoutRef.current = null;
     }
 
     d.registerPendingUpdate?.(id, { content: newValue });
@@ -109,77 +147,146 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
 
     if (options?.forceSync) {
       console.log('[WhyNode] Force flushing pending update:', { id });
-      d.flushPendingUpdate?.(id);
+      (d.flushPendingUpdate ?? flushPendingUpdateRef.current)?.(id);
       return;
     }
 
     const timeout = setTimeout(() => {
       console.log('[WhyNode] Debounced flush for node:', { id });
-      d.flushPendingUpdate?.(id);
-      setSyncTimeout(null);
+      (d.flushPendingUpdate ?? flushPendingUpdateRef.current)?.(id);
+      syncTimeoutRef.current = null;
     }, 500);
 
-    setSyncTimeout(timeout);
-  }, [syncTimeout, d, id, canEdit]);
+    syncTimeoutRef.current = timeout;
+  }, [d, id, canEdit]);
 
   const handleEditEnd = useCallback(() => {
-    if (editTimeout) {
-      clearTimeout(editTimeout);
+    if (editTimeoutRef.current) {
+      clearTimeout(editTimeoutRef.current);
+      editTimeoutRef.current = null;
     }
 
     isEditingRef.current = false;
     isComposingRef.current = false;
-    d.flushPendingUpdate?.(id);
+    (d.flushPendingUpdate ?? flushPendingUpdateRef.current)?.(id);
 
     const timeout = setTimeout(() => {
       if (isEditingRef.current) {
         console.log('[WhyNode] Unlock skipped - textarea regained focus before timeout');
-        setEditTimeout(null);
+        editTimeoutRef.current = null;
         return;
       }
 
+      const currentUserId = currentUserIdRef.current;
+      const unlockNode = unlockNodeRef.current;
+      const releaseLocal = releaseLocalLockRef.current;
+      const stillLockedByMe = !!lockedByMeRef.current && !!isNodeLockedByCurrentUserRef.current?.(id, currentUserId || '');
+
       console.log('[WhyNode] Unlock conditions:', {
-        hasUnlockNode: !!d.unlockNode,
-        lockedByMe,
-        currentUserId: d.currentUserId,
-        isLockedByCurrentUser: isNodeLockedByCurrentUser(id, d.currentUserId || '')
+        hasUnlockNode: !!unlockNode,
+        lockedByMe: lockedByMeRef.current,
+        currentUserId,
+        isLockedByCurrentUser: !!isNodeLockedByCurrentUserRef.current?.(id, currentUserId || '')
       });
 
-      if (d.unlockNode && lockedByMe && isNodeLockedByCurrentUser(id, d.currentUserId || '')) {
+      if (unlockNode && stillLockedByMe) {
         console.log('[WhyNode] Executing unlock for node:', id);
-        d.unlockNode(id);
+        unlockNode(id);
       } else {
         console.log('[WhyNode] Unlock skipped - conditions not met');
       }
-      if (lockedByMe && releaseLocalLock) {
-        releaseLocalLock(id);
+      if (stillLockedByMe && releaseLocal) {
+        releaseLocal(id);
       }
-      setEditTimeout(null);
-    }, 2000);
+      editTimeoutRef.current = null;
+    }, UNLOCK_DELAY_MS);
 
-    setEditTimeout(timeout);
-  }, [d, editTimeout, id, isNodeLockedByCurrentUser, lockedByMe, releaseLocalLock, setEditTimeout]);
+    editTimeoutRef.current = timeout;
+  }, [d, id]);
 
   useEffect(() => {
     return () => {
-      if (editTimeout) {
-        clearTimeout(editTimeout);
+      if (editTimeoutRef.current) {
+        clearTimeout(editTimeoutRef.current);
+        editTimeoutRef.current = null;
       }
-      if (syncTimeout) {
-        clearTimeout(syncTimeout);
+      if (syncTimeoutRef.current) {
+        clearTimeout(syncTimeoutRef.current);
+        syncTimeoutRef.current = null;
       }
-      d.flushPendingUpdate?.(id);
-      if (lockedByMe && d.unlockNode && isNodeLockedByCurrentUser(id, d.currentUserId || '')) {
-        d.unlockNode(id);
+      flushPendingUpdateRef.current?.(id);
+
+      const currentUserId = currentUserIdRef.current;
+      const unlockNode = unlockNodeRef.current;
+      const releaseLocal = releaseLocalLockRef.current;
+      const stillLockedByMe = !!lockedByMeRef.current && !!isNodeLockedByCurrentUserRef.current?.(id, currentUserId || '');
+
+      if (stillLockedByMe && unlockNode) {
+        unlockNode(id);
       }
-      if (lockedByMe && releaseLocalLock) {
-        releaseLocalLock(id);
+      if (stillLockedByMe && releaseLocal) {
+        releaseLocal(id);
+      }
+      if (longPressTimeoutRef.current) {
+        clearTimeout(longPressTimeoutRef.current);
+        longPressTimeoutRef.current = null;
       }
     };
-  }, [editTimeout, syncTimeout, lockedByMe, d, id, isNodeLockedByCurrentUser, releaseLocalLock]);
+  }, [id]);
+
+  const clearLongPressTimer = () => {
+    if (longPressTimeoutRef.current) {
+      clearTimeout(longPressTimeoutRef.current);
+      longPressTimeoutRef.current = null;
+    }
+  };
+
+  const handleLongPress = () => {
+    if (!canEdit) return;
+    longPressTriggeredRef.current = true;
+    d.openMenu?.(id);
+  };
+
+  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== 'touch') {
+      isTouchPointerRef.current = false;
+      return;
+    }
+    isTouchPointerRef.current = true;
+    longPressTriggeredRef.current = false;
+    clearLongPressTimer();
+    longPressTimeoutRef.current = setTimeout(() => {
+      handleLongPress();
+    }, 500);
+  };
+
+  const handlePointerUp = () => {
+    clearLongPressTimer();
+  };
+
+  const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!isTouchPointerRef.current) return;
+    const movement = Math.abs(event.movementX) + Math.abs(event.movementY);
+    if (movement > 6) {
+      clearLongPressTimer();
+    }
+  };
+
+  const handleClickCapture = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (longPressTriggeredRef.current) {
+      event.preventDefault();
+      event.stopPropagation();
+      longPressTriggeredRef.current = false;
+    }
+  };
 
   return (
     <div
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+      onPointerMove={handlePointerMove}
+      onClickCapture={handleClickCapture}
       onContextMenu={(e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -197,14 +304,12 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
       )}
     >
       <NodeToolbar isVisible={d.isMenuOpen} position={Position.Top} className="!p-1">
-        <div className="flex flex-col bg-white border rounded-md shadow-md overflow-hidden min-w-[160px]">
+        <div className="flex items-stretch gap-1.5 bg-white border rounded-md shadow-md overflow-hidden px-1.5 py-1">
           <button
             disabled={d.type === "action" || d.type === "cause"}
             className={clsx(
-              "px-3 py-2 text-left hover:bg-gray-100",
-              (d.type === "action" || d.type === "cause")
-                ? "text-gray-400 cursor-not-allowed"
-                : "text-black"
+              "flex flex-col items-center justify-center gap-0.5 rounded-md px-2 py-1.5 text-[11px] font-medium text-gray-700 bg-gray-100 hover:bg-gray-200",
+              (d.type === "action" || d.type === "cause") && "opacity-50 cursor-not-allowed hover:bg-gray-100"
             )}
             onClick={(e) => {
               e.stopPropagation();
@@ -212,15 +317,14 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
               d.closeMenu();
             }}
           >
-            なぜを追加
+            <span className="text-sm leading-none">＋</span>
+            <span>なぜ</span>
           </button>
           <button
             disabled={d.type === "action" || d.type === "cause"}
             className={clsx(
-              "px-3 py-2 text-left hover:bg-gray-100",
-              (d.type === "action" || d.type === "cause")
-                ? "text-gray-400 cursor-not-allowed"
-                : "text-black"
+              "flex flex-col items-center justify-center gap-0.5 rounded-md px-2 py-1.5 text-[11px] font-medium text-green-700 bg-green-100 hover:bg-green-200",
+              (d.type === "action" || d.type === "cause") && "opacity-50 cursor-not-allowed hover:bg-green-100"
             )}
             onClick={(e) => {
               e.stopPropagation();
@@ -228,15 +332,14 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
               d.closeMenu();
             }}
           >
-            原因を追加
+            <span className="text-sm leading-none">＋</span>
+            <span>原因</span>
           </button>
           <button
             disabled={d.type !== "cause"}
             className={clsx(
-              "px-3 py-2 text-left hover:bg-gray-100",
-              d.type !== "cause"
-                ? "text-gray-400 cursor-not-allowed"
-                : "text-black"
+              "flex flex-col items-center justify-center gap-0.5 rounded-md px-2 py-1.5 text-[11px] font-medium text-blue-700 bg-blue-100 hover:bg-blue-200",
+              d.type !== "cause" && "opacity-50 cursor-not-allowed hover:bg-blue-100"
             )}
             onClick={(e) => {
               e.stopPropagation();
@@ -244,15 +347,14 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
               d.closeMenu();
             }}
           >
-            対策を追加
+            <span className="text-sm leading-none">＋</span>
+            <span>対策</span>
           </button>
           <button
             disabled={!d.canDelete(id)}
             className={clsx(
-              "px-3 py-2 text-left hover:bg-gray-100 border-t",
-              !d.canDelete(id)
-                ? "text-gray-400 cursor-not-allowed"
-                : "text-black"
+              "flex flex-col items-center justify-center gap-0.5 rounded-md px-2 py-1.5 text-[11px] font-semibold text-red-600 bg-red-100 hover:bg-red-200",
+              !d.canDelete(id) && "opacity-50 cursor-not-allowed hover:bg-red-100"
             )}
             onClick={(e) => {
               e.stopPropagation();
@@ -260,7 +362,8 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
               d.closeMenu();
             }}
           >
-            ノードを削除
+            <span className="text-sm leading-none">×</span>
+            <span>削除</span>
           </button>
         </div>
       </NodeToolbar>
@@ -311,9 +414,9 @@ function WhyNodeImpl({ id, data, selected }: NodeProps<RFNode<WhyNodeData>>) {
         onBlur={handleEditEnd}
         onCompositionStart={() => {
           isComposingRef.current = true;
-          if (syncTimeout) {
-            clearTimeout(syncTimeout);
-            setSyncTimeout(null);
+          if (syncTimeoutRef.current) {
+            clearTimeout(syncTimeoutRef.current);
+            syncTimeoutRef.current = null;
           }
         }}
         onCompositionEnd={(e) => {
