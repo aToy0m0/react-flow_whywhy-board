@@ -48,7 +48,7 @@ openssl rand -base64 32
 # NEXT_PUBLIC_API_BASE_URL=<your server IP or FQDN>:3000
 
 # アプリケーションビルド・起動
-docker compose up -d --build
+docker compose up -d
 
 # マイグレーション実行
 docker compose exec web npx prisma migrate deploy
